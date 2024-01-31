@@ -16,6 +16,7 @@ data Env = MkEnv
 --   , whileLoopName :: Ghc.Name
   , liftName :: Ghc.Name
   , voidName :: Ghc.Name
+  , whenName :: Ghc.Name
   }
 
 renamedResultAction
@@ -35,6 +36,7 @@ renamedResultAction gblEnv group = do
 --     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whileLoop")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "lift")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "void")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "when")
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)
@@ -61,14 +63,17 @@ transform env x =
 transformStmt :: Env -> Ghc.ExprLStmt Ghc.GhcRn -> Ghc.ExprLStmt Ghc.GhcRn
 transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
   Ghc.BodyStmt x body@(Ghc.L _ b) syn1 syn2 | isAppOf [earlyReturnName env] b ->
-    Ghc.BodyStmt x (addApp (voidName env) body) syn1 syn2
-  -- _ | isEarlyReturnStmt env stmt -> Ghc.L loc stmt
+    Ghc.BodyStmt x (addApp (voidName env) $ transform env body) syn1 syn2
+  Ghc.BodyStmt x body syn1 syn2 | isAppOf loopNames (Ghc.unLoc body) ->
+    Ghc.BodyStmt x (transformDoArg body) syn1 syn2
   Ghc.BindStmt x pat body ->
     Ghc.BindStmt x pat (addApp (liftName env) $ transform env body)
   Ghc.BodyStmt x (Ghc.L bl (Ghc.HsIf ix predi t e)) syn1 syn2 ->
     Ghc.BodyStmt x (Ghc.L bl (Ghc.HsIf ix predi (transformExpr t) (transformExpr e))) syn1 syn2
   Ghc.BodyStmt x body syn1 syn2 ->
     Ghc.BodyStmt x (addApp (liftName env) $ transform env body) syn1 syn2
+  Ghc.LastStmt x body@(Ghc.L _ b) stripped syn | isAppOf [earlyReturnName env] b ->
+    Ghc.LastStmt x (addApp (voidName env) $ transform env body) stripped syn
   Ghc.LastStmt x body stripped syn ->
     Ghc.LastStmt x (addApp (liftName env) $ transform env body) stripped syn
   -- TODO recurse into loops
@@ -83,11 +88,34 @@ transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
 
     transformExpr :: Ghc.LHsExpr Ghc.GhcRn -> Ghc.LHsExpr Ghc.GhcRn
     transformExpr = \case
-      Ghc.L loc2 (Ghc.HsDo m (Ghc.DoExpr Nothing) (Ghc.L sloc stmts)) ->
-        let newStmts = Ghc.L sloc $ map (transformStmt env) stmts
+      Ghc.L loc2 (Ghc.HsDo m (Ghc.DoExpr Nothing) stmts) ->
+        let newStmts = map (transformStmt env) <$> stmts
          in Ghc.L loc2 $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
       expr | isAppOf [earlyReturnName env] (Ghc.unLoc expr) -> expr
       expr -> addApp (liftName env) expr
+
+    transformDoArg (Ghc.L eL expr) = case expr of
+      Ghc.OpApp x lExpr oExpr rExpr ->
+        Ghc.L eL . Ghc.OpApp x lExpr oExpr $ transformDoArg rExpr
+      Ghc.HsApp x fExpr@(Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) aExpr
+        | fName == earlyReturnName env  ->
+          addApp (voidName env) . Ghc.L eL $ Ghc.HsApp x fExpr aExpr
+      Ghc.HsApp x fExpr aExpr ->
+        Ghc.L eL . Ghc.HsApp x fExpr $ transformDoArg aExpr
+      Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
+        let newStmts = map (transformStmt env) <$> stmts
+         in Ghc.L eL $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
+      x -> Ghc.L eL x
+
+    loopNames = getLoopNames env
+
+getLoopNames :: Env -> [Ghc.Name]
+getLoopNames env =
+  [ forLoopName env
+  , whenName env
+--  , repeatLoopName env
+--  , whileLoopName env
+  ]
 
 isEarlyReturnStmt
   :: Env
@@ -101,19 +129,17 @@ isEarlyReturnStmt env = \case
   -- Ghc.BindStmt _ _pat body -> isIfThenElseWithEarlyReturn (Ghc.unLoc body)
   _ -> False
   where
-    loopNames =
-      [ forLoopName env
---       , repeatLoopName env
---       , whileLoopName env
-      ]
+    loopNames = getLoopNames env
     isEarlyReturn expr =
       -- look for application of earlyReturn or forLoop with a do block argument.
       -- This might involve looking through applications of $ and parens.
       isAppOf [earlyReturnName env] expr
       || (isAppOf loopNames expr && isDoBlockArgWithEarlyReturn expr)
-      -- TODO other loop types + when
+      -- TODO other loop types
       || isIfThenElseWithEarlyReturn expr
     isDoBlockArgWithEarlyReturn = \case
+      Ghc.HsApp _ expr _ | isAppOf [earlyReturnName env] $ Ghc.unLoc expr -> True
+      Ghc.HsApp _ _ arg -> isDoBlockArgWithEarlyReturn $ Ghc.unLoc arg
       Ghc.HsDo _ (Ghc.DoExpr Nothing) (Ghc.L _ stmts)
         -> any (isEarlyReturnStmt env . Ghc.unLoc) stmts
       _ -> False
@@ -126,9 +152,10 @@ isEarlyReturnStmt env = \case
 isAppOf :: [Ghc.Name] -> Ghc.HsExpr Ghc.GhcRn -> Bool
 isAppOf names = \case
   Ghc.HsPar _ _ inner _ -> isAppOf names (Ghc.unLoc inner)
-  Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
-              (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ argName)))
-    -> fName == Ghc.dollarName && argName `elem` names
+  Ghc.OpApp _ (Ghc.L _ leftExpr)
+              (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
+              _
+    -> fName == Ghc.dollarName && isAppOf names leftExpr -- argName `elem` names
   Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) _argExpr
     -> fName `elem` names
   Ghc.HsApp _ fExpr _

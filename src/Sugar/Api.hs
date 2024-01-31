@@ -30,5 +30,5 @@ void :: Functor f => f a -> f ()
 void = F.void
 
 -- TODO should be able to utilize the existing when function.
-when :: Applicative f => Bool -> f () -> f ()
+when :: Monad f => Bool -> f () -> f ()
 when = M.when

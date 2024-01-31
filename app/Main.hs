@@ -10,6 +10,8 @@ main = do
 blah :: IO Int
 blah = do
   i <- getLine
+  when (i == "no") $
+    earlyReturn 5
   if i == "yes"
      then earlyReturn 2
      else pure ()
