@@ -8,3 +8,4 @@ import           GHC.Tc.Types as Ghc hiding (TcPlugin, DefaultingPlugin)
 import           GHC.Builtin.Names as Ghc
 import           GHC.Types.Name.Occurrence as Ghc
 import           GHC.Tc.Plugin as Ghc
+import           GHC.Utils.Outputable as Ghc

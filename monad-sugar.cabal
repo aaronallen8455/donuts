@@ -46,6 +46,7 @@ executable play
 test-suite monad-sugar-test
     import:           warnings
     default-language: GHC2021
+    ghc-options: -fplugin Sugar.Plugin
     -- other-modules:
     -- other-extensions:
     type:             exitcode-stdio-1.0
@@ -53,4 +54,6 @@ test-suite monad-sugar-test
     main-is:          Main.hs
     build-depends:
         base ^>=4.19.0.0,
-        monad-sugar
+        monad-sugar,
+        tasty,
+        tasty-hunit

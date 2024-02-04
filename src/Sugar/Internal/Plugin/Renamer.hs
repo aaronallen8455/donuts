@@ -66,10 +66,9 @@ transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
   Ghc.BindStmt x pat body ->
     Ghc.BindStmt x pat (addApp (liftName env) $ transform env body)
   Ghc.LastStmt x body@(Ghc.L _ b) stripped syn | isAppOf [earlyReturnName env] b ->
-    Ghc.LastStmt x (addApp (voidName env) $ transform env body) stripped syn
+    Ghc.LastStmt x (transform env body) stripped syn
   Ghc.LastStmt x body stripped syn ->
-    Ghc.LastStmt x (addApp (liftName env) $ transform env body) stripped syn
-  -- TODO case statements
+    Ghc.LastStmt x (transformBodyStmt body) stripped syn
   _ -> transform env stmt
   where
     addApp :: Ghc.Name -> Ghc.LHsExpr Ghc.GhcRn -> Ghc.LHsExpr Ghc.GhcRn
@@ -104,6 +103,7 @@ transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
         (transform env <$> guards)
         (transformDoArg body)
 
+    -- how is this different from transformDoArg?
     transformExpr :: Ghc.LHsExpr Ghc.GhcRn -> Ghc.LHsExpr Ghc.GhcRn
     transformExpr = \case
       Ghc.L loc2 (Ghc.HsPar x a inner b) ->
@@ -119,11 +119,13 @@ transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
         Ghc.L eL $ Ghc.HsLam lX (transformMatchGroup mg)
       Ghc.HsPar x a inner b ->
         Ghc.L eL $ Ghc.HsPar x a (transformDoArg inner) b
-      Ghc.OpApp x lExpr oExpr rExpr ->
+      Ghc.OpApp x lExpr oExpr rExpr -> -- TODO check lExpr
         Ghc.L eL . Ghc.OpApp x (transform env lExpr) oExpr $ transformDoArg rExpr
       Ghc.HsApp x fExpr@(Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) aExpr
-        | fName == earlyReturnName env  ->
-          addApp (voidName env) . Ghc.L eL $ Ghc.HsApp x fExpr (transform env aExpr)
+        | fName == earlyReturnName env ->
+          {-addApp (voidName env) .-} Ghc.L eL $ Ghc.HsApp x fExpr (transform env aExpr)
+      Ghc.HsApp x fExpr aExpr -> -- TODO check fExpr
+        Ghc.L eL . Ghc.HsApp x (transform env fExpr) $ transformDoArg aExpr
       Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
         let newStmts = map (transformStmt env) <$> stmts
          in Ghc.L eL $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
@@ -156,13 +158,23 @@ isEarlyReturnStmt env = \case
       -- look for application of earlyReturn or forLoop with a do block argument.
       -- This might involve looking through applications of $ and parens.
       isAppOf [earlyReturnName env] expr
-      || (isAppOf loopNames expr && isDoBlockArgWithEarlyReturn expr)
+        -- Lump loops in with early return for now
+      || isAppOf loopNames expr -- && isDoBlockArgWithEarlyReturn expr)
       -- TODO other loop types
+      -- TODO dollar bang
       || isIfThenElseWithEarlyReturn expr
       || isCaseWithEarlyRet expr
     isDoBlockArgWithEarlyReturn = \case
+      Ghc.HsPar _ _ inner _ -> isDoBlockArgWithEarlyReturn $ Ghc.unLoc inner
       Ghc.HsApp _ expr _ | isAppOf [earlyReturnName env] $ Ghc.unLoc expr -> True
-      Ghc.HsApp _ _ arg -> isDoBlockArgWithEarlyReturn $ Ghc.unLoc arg
+      Ghc.HsApp _ fExpr arg -> isAppOf loopNames (Ghc.unLoc fExpr)
+                            && isDoBlockArgWithEarlyReturn (Ghc.unLoc arg)
+      Ghc.OpApp _ (Ghc.L _ leftExpr)
+                  (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
+                  (Ghc.L _ rightExpr)
+        -> isAppOf loopNames leftExpr
+           && fName == Ghc.dollarName
+           && isDoBlockArgWithEarlyReturn rightExpr
       Ghc.HsDo _ (Ghc.DoExpr Nothing) (Ghc.L _ stmts)
         -> any (isEarlyReturnStmt env . Ghc.unLoc) stmts
       _ -> False
@@ -179,11 +191,12 @@ isEarlyReturnStmt env = \case
 
 isAppOf :: [Ghc.Name] -> Ghc.HsExpr Ghc.GhcRn -> Bool
 isAppOf names = \case
+  Ghc.HsVar _ (Ghc.L _ name) -> name `elem` names
   Ghc.HsPar _ _ inner _ -> isAppOf names (Ghc.unLoc inner)
   Ghc.OpApp _ (Ghc.L _ leftExpr)
               (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
               _
-    -> fName == Ghc.dollarName && isAppOf names leftExpr -- argName `elem` names
+    -> fName == Ghc.dollarName && isAppOf names leftExpr
   Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) _argExpr
     -> fName `elem` names
   Ghc.HsApp _ fExpr _
