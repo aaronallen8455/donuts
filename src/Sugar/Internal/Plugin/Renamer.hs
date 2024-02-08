@@ -15,7 +15,7 @@ data Env = MkEnv
 --   , repeatLoopName :: Ghc.Name
 --   , whileLoopName :: Ghc.Name
   , liftName :: Ghc.Name
-  , voidName :: Ghc.Name
+--   , voidName :: Ghc.Name
   , whenName :: Ghc.Name
   }
 
@@ -35,7 +35,7 @@ renamedResultAction gblEnv group = do
 --     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatLoop")
 --     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whileLoop")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "lift")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "void")
+--     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "void")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "when")
   pure (gblEnv, transform env group)
 
@@ -50,8 +50,8 @@ transform env x =
   where
     checkAndApply = \case
       Ghc.HsDo m (Ghc.DoExpr Nothing) (Ghc.L loc stmts)
-        | any (isEarlyReturnStmt env . Ghc.unLoc) stmts ->
-           let newStmts = Ghc.L loc $ map (transformStmt env) stmts
+        | any (isTargetStmt env . Ghc.unLoc) stmts ->
+           let newStmts = Ghc.L loc $ map (transformStmt env [transformEarlyReturn]) stmts
             in Just $
               Ghc.HsApp Ghc.noComments
                 (Ghc.noLocA (Ghc.HsVar Ghc.noExtField
@@ -59,38 +59,97 @@ transform env x =
               (Ghc.noLocA $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts)
       _ -> Nothing
 
-transformStmt :: Env -> Ghc.ExprLStmt Ghc.GhcRn -> Ghc.ExprLStmt Ghc.GhcRn
-transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
-  Ghc.BodyStmt x body syn1 syn2 ->
-    Ghc.BodyStmt x (transformBodyStmt body) syn1 syn2
-  Ghc.BindStmt x pat body ->
-    Ghc.BindStmt x pat (addApp (liftName env) $ transform env body)
-  Ghc.LastStmt x body@(Ghc.L _ b) stripped syn | isAppOf [earlyReturnName env] b ->
-    Ghc.LastStmt x (transform env body) stripped syn
-  Ghc.LastStmt x body stripped syn ->
-    Ghc.LastStmt x (transformBodyStmt body) stripped syn
-  _ -> transform env stmt
+-- transformStmt should only deal with traversing the list of do statements.
+-- It should accumulate a list of transformer functions that are applied in
+-- order to each statement, possibly producing multiple statements which are
+-- in turn passed to each subsequent transformer function.
+-- It's important that these concerns are delineated so that transformations
+-- can be layered on top of each other.
+-- It needs to be able to look into the do expressions inside of the various
+-- loop combinators, the individual transformers should not be concerned with that.
+-- Should also look into if and case statements.
+-- For convenience, the early return transformation will always be at the
+-- bottom of the stack and will apply the 'transform' function at appropriate
+-- points.
+-- Should not pass statements with control function apps to transformer functions
+-- transformStmt should handle recursive calls of transform, after checking
+-- for control functions.
+
+data Stmt
+  = Body (Ghc.HsExpr Ghc.GhcRn)
+  | Bind (Ghc.LPat Ghc.GhcRn) (Ghc.HsExpr Ghc.GhcRn)
+
+type StmtTransformer = Env -> Stmt -> Stmt
+
+transformEarlyReturn :: StmtTransformer
+transformEarlyReturn env = \case
+  Body body -> Body $ transformBodyStmt body
+  Bind pat body -> Bind pat $ addApp (liftName env) body
   where
-    addApp :: Ghc.Name -> Ghc.LHsExpr Ghc.GhcRn -> Ghc.LHsExpr Ghc.GhcRn
-    addApp name
-      = Ghc.noLocA
-      . Ghc.HsApp
-          Ghc.noComments
-          (Ghc.noLocA (Ghc.HsVar Ghc.noExtField (Ghc.noLocA name)))
+    transformBodyStmt = \case
+      body | isAppOf [earlyReturnName env] body -> body
+      body -> addApp (liftName env) body
+
+addApp :: Ghc.Name -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
+addApp name expr
+  = Ghc.HsApp
+      Ghc.noComments
+      (Ghc.noLocA (Ghc.HsVar Ghc.noExtField (Ghc.noLocA name)))
+      (Ghc.noLocA expr)
+
+defaultThenExpr :: Ghc.HsExpr Ghc.GhcRn
+defaultThenExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.thenMName)
+
+defaultBindExpr :: Ghc.HsExpr Ghc.GhcRn
+defaultBindExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.bindMName)
+
+defaultBindStmtX :: Ghc.XBindStmtRn
+defaultBindStmtX =
+  Ghc.XBindStmtRn
+    { Ghc.xbsrn_bindOp = Ghc.SyntaxExprRn defaultBindExpr
+    , Ghc.xbsrn_failOp = Nothing
+    }
+
+transformStmt
+  :: Env
+  -> [StmtTransformer]
+  -> Ghc.ExprLStmt Ghc.GhcRn
+  -> Ghc.ExprLStmt Ghc.GhcRn
+transformStmt env stmtTransformers (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
+  Ghc.BodyStmt Ghc.NoExtField (Ghc.L bL body) thenExpr Ghc.NoSyntaxExprRn ->
+    case transformBodyStmt body of
+      Body b -> Ghc.BodyStmt Ghc.noExtField (Ghc.L bL b) thenExpr Ghc.noSyntaxExpr
+      Bind pat b -> Ghc.BindStmt defaultBindStmtX pat (Ghc.L bL b)
+  Ghc.BindStmt x pat (Ghc.L bL body) ->
+    case transformBindStmt pat body of
+      Body b -> Ghc.BodyStmt Ghc.noExtField (Ghc.L bL b) (Ghc.SyntaxExprRn defaultThenExpr) Ghc.noSyntaxExpr
+      Bind p b -> Ghc.BindStmt x p (Ghc.L bL b)
+  Ghc.LastStmt Ghc.NoExtField (Ghc.L bL body) Nothing Ghc.NoSyntaxExprRn ->
+    case transformBodyStmt body of
+      Body b -> Ghc.LastStmt Ghc.noExtField (Ghc.L bL b) Nothing Ghc.noSyntaxExpr
+      Bind pat b -> Ghc.BindStmt defaultBindStmtX pat (Ghc.L bL b)
+  _ -> transform env stmt -- handles let statements and anything else
+  where
+    applyTransformers st = foldr (\t s -> t env s) st stmtTransformers
 
     transformBodyStmt = \case
-      body@(Ghc.L _ b) | isAppOf [earlyReturnName env] b ->
-        addApp (voidName env) $ transform env body
-      body | isAppOf loopNames (Ghc.unLoc body) ->
-        transformDoArg body
-      Ghc.L bl (Ghc.HsIf ix predi t e) ->
-        Ghc.L bl (Ghc.HsIf ix predi (transformExpr t) (transformExpr e))
-      Ghc.L bL (Ghc.HsCase cx scrut mg) ->
-        Ghc.L bL (Ghc.HsCase cx (transform env scrut) $ transformMatchGroup mg)
-      body ->
-        addApp (liftName env) $ transform env body
+      Ghc.HsPar x l (Ghc.L bL inner) r ->
+        case transformBodyStmt inner of
+          Body b -> Body $ Ghc.HsPar x l (Ghc.L bL b) r
+          s -> s
+      body | isAppOf loopNames body ->
+        Body $ transformExpr body
+      Ghc.HsIf ix predi t e ->
+        Body (Ghc.HsIf ix predi (transformExpr <$> t) (transformExpr <$> e))
+      Ghc.HsCase cx scrut mg ->
+        Body (Ghc.HsCase cx (transform env scrut) $ transformMatchGroup mg)
+      body -> applyTransformers (Body $ transform env body)
 
+    transformBindStmt lPat body = applyTransformers (Bind lPat body)
+
+    transformMatchGroup :: Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
     transformMatchGroup mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
+    transformMatch :: Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
     transformMatch match =
       match { Ghc.m_pats = transform env <$> Ghc.m_pats match
             , Ghc.m_grhss = (Ghc.m_grhss match)
@@ -98,38 +157,27 @@ transformStmt env (Ghc.L loc stmt) = Ghc.L loc $ case stmt of
                   map (fmap transformGRHS) (Ghc.grhssGRHSs (Ghc.m_grhss match))
               }
             }
+    transformGRHS :: Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
     transformGRHS (Ghc.GRHS x guards body) =
       Ghc.GRHS x
         (transform env <$> guards)
-        (transformDoArg body)
+        (transformExpr <$> body)
 
-    -- how is this different from transformDoArg?
-    transformExpr :: Ghc.LHsExpr Ghc.GhcRn -> Ghc.LHsExpr Ghc.GhcRn
     transformExpr = \case
-      Ghc.L loc2 (Ghc.HsPar x a inner b) ->
-        Ghc.L loc2 (Ghc.HsPar x a (transformExpr inner) b)
-      Ghc.L loc2 (Ghc.HsDo m (Ghc.DoExpr Nothing) stmts) ->
-        let newStmts = map (transformStmt env) <$> stmts
-         in Ghc.L loc2 $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
-      expr | isAppOf [earlyReturnName env] (Ghc.unLoc expr) -> expr
-      expr -> addApp (liftName env) expr
-
-    transformDoArg (Ghc.L eL expr) = case expr of
       Ghc.HsLam lX mg ->
-        Ghc.L eL $ Ghc.HsLam lX (transformMatchGroup mg)
+        Ghc.HsLam lX (transformMatchGroup mg)
       Ghc.HsPar x a inner b ->
-        Ghc.L eL $ Ghc.HsPar x a (transformDoArg inner) b
+        Ghc.HsPar x a (transformExpr <$> inner) b
       Ghc.OpApp x lExpr oExpr rExpr -> -- TODO check lExpr
-        Ghc.L eL . Ghc.OpApp x (transform env lExpr) oExpr $ transformDoArg rExpr
-      Ghc.HsApp x fExpr@(Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) aExpr
-        | fName == earlyReturnName env ->
-          {-addApp (voidName env) .-} Ghc.L eL $ Ghc.HsApp x fExpr (transform env aExpr)
-      Ghc.HsApp x fExpr aExpr -> -- TODO check fExpr
-        Ghc.L eL . Ghc.HsApp x (transform env fExpr) $ transformDoArg aExpr
+        Ghc.OpApp x (transform env lExpr) oExpr $ transformExpr <$> rExpr
+      s@(Ghc.HsApp x fExpr aExpr) | isAppOf loopNames s ->
+        Ghc.HsApp x (transform env fExpr) (transformExpr <$> aExpr)
       Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
-        let newStmts = map (transformStmt env) <$> stmts
-         in Ghc.L eL $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
-      x -> transformExpr $ Ghc.L eL x
+        let newStmts = map (transformStmt env stmtTransformers) <$> stmts
+         in Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
+      expr -> case applyTransformers (Body $ transform env expr) of
+                Body b -> b
+                Bind _ b -> b -- problematic...
 
     loopNames = getLoopNames env
 
@@ -141,53 +189,48 @@ getLoopNames env =
 --  , whileLoopName env
   ]
 
-isEarlyReturnStmt
+isTargetStmt
   :: Env
   -> Ghc.StmtLR Ghc.GhcRn Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
   -> Bool
-isEarlyReturnStmt env = \case
-  Ghc.LastStmt _ body _ _ -> isEarlyReturn (Ghc.unLoc body)
-  Ghc.BodyStmt _ body _ _ -> isEarlyReturn (Ghc.unLoc body)
-  -- Should bound if statements be transformed? Probably not since a bind
-  -- implies opening a new scope.
-  -- Ghc.BindStmt _ _pat body -> isIfThenElseWithEarlyReturn (Ghc.unLoc body)
+isTargetStmt env = \case
+  Ghc.LastStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
+  Ghc.BodyStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
   _ -> False
   where
     loopNames = getLoopNames env
-    isEarlyReturn expr =
+    isTargetExpr expr =
       -- look for application of earlyReturn or forLoop with a do block argument.
       -- This might involve looking through applications of $ and parens.
       isAppOf [earlyReturnName env] expr
         -- Lump loops in with early return for now
-      || isAppOf loopNames expr -- && isDoBlockArgWithEarlyReturn expr)
-      -- TODO other loop types
-      -- TODO dollar bang
+      || isAppOf loopNames expr
       || isIfThenElseWithEarlyReturn expr
-      || isCaseWithEarlyRet expr
-    isDoBlockArgWithEarlyReturn = \case
-      Ghc.HsPar _ _ inner _ -> isDoBlockArgWithEarlyReturn $ Ghc.unLoc inner
+      || isCaseWithTarget expr
+    isIfThenElseWithEarlyReturn = \case
+      Ghc.HsIf _ _pred (Ghc.L _ t) (Ghc.L _ e) ->
+        exprContainsTarget t || isTargetExpr t
+        || exprContainsTarget e || isTargetExpr e
+      _ -> False
+    exprContainsTarget = \case
+      Ghc.HsPar _ _ inner _ -> exprContainsTarget $ Ghc.unLoc inner
       Ghc.HsApp _ expr _ | isAppOf [earlyReturnName env] $ Ghc.unLoc expr -> True
       Ghc.HsApp _ fExpr arg -> isAppOf loopNames (Ghc.unLoc fExpr)
-                            && isDoBlockArgWithEarlyReturn (Ghc.unLoc arg)
+                            && exprContainsTarget (Ghc.unLoc arg)
       Ghc.OpApp _ (Ghc.L _ leftExpr)
                   (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
                   (Ghc.L _ rightExpr)
         -> isAppOf loopNames leftExpr
            && fName == Ghc.dollarName
-           && isDoBlockArgWithEarlyReturn rightExpr
+           && exprContainsTarget rightExpr
       Ghc.HsDo _ (Ghc.DoExpr Nothing) (Ghc.L _ stmts)
-        -> any (isEarlyReturnStmt env . Ghc.unLoc) stmts
+        -> any (isTargetStmt env . Ghc.unLoc) stmts
       _ -> False
-    isIfThenElseWithEarlyReturn = \case
-      Ghc.HsIf _ _pred (Ghc.L _ t) (Ghc.L _ e) ->
-        isDoBlockArgWithEarlyReturn t || isEarlyReturn t
-        || isDoBlockArgWithEarlyReturn e || isEarlyReturn e
+    isCaseWithTarget = \case
+      Ghc.HsCase _ _ mg -> any (matchWithTarget . Ghc.unLoc) (Ghc.unLoc $ Ghc.mg_alts mg)
       _ -> False
-    isCaseWithEarlyRet = \case
-      Ghc.HsCase _ _ mg -> any (matchWithEarlyRet . Ghc.unLoc) (Ghc.unLoc $ Ghc.mg_alts mg)
-      _ -> False
-    matchWithEarlyRet = any (grhsWithEarlyRet . Ghc.unLoc) . Ghc.grhssGRHSs . Ghc.m_grhss
-    grhsWithEarlyRet (Ghc.GRHS _ _guards body) = isEarlyReturn (Ghc.unLoc body)
+    matchWithTarget = any (grhsWithTarget . Ghc.unLoc) . Ghc.grhssGRHSs . Ghc.m_grhss
+    grhsWithTarget (Ghc.GRHS _ _guards body) = isTargetExpr (Ghc.unLoc body)
 
 isAppOf :: [Ghc.Name] -> Ghc.HsExpr Ghc.GhcRn -> Bool
 isAppOf names = \case
@@ -197,6 +240,7 @@ isAppOf names = \case
               (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
               _
     -> fName == Ghc.dollarName && isAppOf names leftExpr
+        -- TODO handle strict dollar as well
   Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) _argExpr
     -> fName `elem` names
   Ghc.HsApp _ fExpr _
