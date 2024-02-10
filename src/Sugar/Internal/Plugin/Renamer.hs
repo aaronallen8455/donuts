@@ -12,6 +12,7 @@ data Env = MkEnv
   { earlyReturnName :: Ghc.Name
   , earlyReturnWrapDoName :: Ghc.Name
   , forLoopName :: Ghc.Name
+  , repeatLName :: Ghc.Name
   , continueLName :: Ghc.Name
   , breakLName :: Ghc.Name
 --   , repeatLoopName :: Ghc.Name
@@ -34,6 +35,7 @@ renamedResultAction gblEnv group = do
     <$> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturn")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturnWrapDo")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "forLoop")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "continueL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "breakL")
 --     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatLoop")
@@ -211,8 +213,8 @@ applyTransformers env stmtTransformers st =
 getLoopNames :: Env -> [Ghc.Name]
 getLoopNames env =
   [ forLoopName env
+  , repeatLName env
 --  , whenName env
---  , repeatLoopName env
 --  , whileLoopName env
   ]
 

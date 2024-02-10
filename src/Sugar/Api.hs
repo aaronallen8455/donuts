@@ -2,12 +2,15 @@ module Sugar.Api
   ( earlyReturn
   , earlyReturnWrapDo
   , forLoop
+  , repeatL
   , continueL
   , breakL
   , LoopControl(..)
   , lift
   , void
   , when
+  , letMut
+  , (=:)
   ) where
 
 import qualified Control.Monad as M
@@ -38,6 +41,17 @@ forLoop fa f = foldr go (pure ()) fa
       Left Continue -> acc
       Left Break -> pure ()
 
+repeatL
+  :: Monad m
+  => ExceptT LoopControl m ()
+  -> m ()
+repeatL f =
+  let go = runExceptT f >>= \case
+        Right () -> go
+        Left Continue -> go
+        Left Break -> pure ()
+   in go
+
 continueL :: Monad m => ExceptT LoopControl m a
 continueL = throwE Continue
 
@@ -54,3 +68,11 @@ void = F.void
 -- TODO should be able to utilize the existing when function.
 when :: Monad f => Bool -> f () -> f ()
 when = M.when
+
+letMut :: a -> a
+letMut = id
+
+-- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
+infixl 0 =:
+(=:) :: Monad m => a -> b -> m ()
+_ =: _ = pure ()
