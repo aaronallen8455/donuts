@@ -56,4 +56,5 @@ test-suite monad-sugar-test
         base ^>=4.19.0.0,
         monad-sugar,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        mtl

@@ -1,6 +1,6 @@
-{-# OPTIONS -fplugin Sugar.Plugin #-}
 module Main (main) where
 
+import           Control.Monad.Writer
 import           Data.Functor.Identity
 import           Sugar.Api
 import           Test.Tasty
@@ -19,6 +19,7 @@ tests = testGroup "statements"
   , testCase "case 2" case2
   , testCase "case 3" case3
   , testCase "forLoop" for1
+  , testCase "continue + break" continueBreak
   ]
 
 ifStatement1 :: Assertion
@@ -93,3 +94,15 @@ for1 =
           when (i == 5) $ earlyReturn (1 :: Int)
         pure 2
    in s @?= 1
+
+continueBreak :: Assertion
+continueBreak =
+  let (_, s) = runWriter $ do
+        tell "start"
+        forLoop [(1::Int)..12] $ \i -> do
+          tell $ show i
+          when (i == 7) continueL
+          tell $ show (i * 2)
+          when (i == 9) breakL
+        tell "end"
+   in s @?= "start122436485106127816918end"

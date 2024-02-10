@@ -40,3 +40,13 @@ s :: Int
 s = runIdentity $ do
         when True (earlyReturn 1)
         pure (3 :: Int)
+
+bc :: IO ()
+bc = do
+  putStrLn "here we go"
+  forLoop [(1::Int)..12] $ \i -> do
+    print i
+    when (i == 7) continueL
+    print (i * 2)
+    when (i == 9) breakL
+  putStrLn "the end"
