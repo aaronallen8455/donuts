@@ -44,7 +44,7 @@ s = runIdentity $ do
 bc :: IO ()
 bc = do
   putStrLn "here we go"
-  let x _mut = "yo"
+  let Mut x = "yo"
   x =: "yoyo"
   print x
   forLoop [(1::Int)..12] $ \i -> do

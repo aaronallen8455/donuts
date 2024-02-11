@@ -25,7 +25,7 @@ data Env = MkEnv
   , newMutVarName :: Ghc.Name
   , setMutVarName :: Ghc.Name
   , getMutVarName :: Ghc.Name
-  , letMutName :: Ghc.Name
+  , mutConName :: Ghc.Name
   }
 
 renamedResultAction
@@ -53,7 +53,7 @@ renamedResultAction gblEnv group = do
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "newMutVar")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "setMutVar")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "getMutVar")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "newMutVar")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkDataOcc "Mut")
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)
@@ -219,27 +219,18 @@ transformStmt
   -> Ghc.ExprStmt Ghc.GhcRn
   -> TransformStmtResult
 transformStmt env stmtTransformers = \case
---   Ghc.BodyStmt Ghc.NoExtField
---       (Ghc.L loc (Ghc.HsApp _ (Ghc.L _ (Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
---                                (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ varName))))) (Ghc.L valL val))) _thenExpr Ghc.NoSyntaxExprRn
---     | letMutName env == fName
---     -> OpenDo (transformMutVar varName : stmtTransformers)
---          ( \stmts ->
---            let newVarDo =
---                  Ghc.HsApp Ghc.noComments
---                    (Ghc.L valL $ addApp (newMutVarName env) $ transform env val)
---                    (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing) $ Ghc.noLocA stmts)
---             in Ghc.LastStmt Ghc.noExtField (Ghc.L loc newVarDo) Nothing Ghc.noSyntaxExpr
---          )
   Ghc.BodyStmt Ghc.NoExtField (Ghc.L bL body) _thenExpr Ghc.NoSyntaxExprRn ->
     Result $
     case transformBodyStmt body of
       Body b bnds -> bodyToStmts bL b bnds
       Bind pat b bnds -> bindToStmts bL pat b bnds
+
+  -- TODO Mut bind
   Ghc.BindStmt _x pat (Ghc.L bL body) -> Result $
     case transformBindStmt pat body of
       Body b bnds -> bodyToStmts bL b bnds
       Bind p b bnds -> bindToStmts bL p b bnds
+
   Ghc.LastStmt Ghc.NoExtField (Ghc.L bL body) Nothing Ghc.NoSyntaxExprRn ->
     Result $
     case transformBodyStmt body of
@@ -250,18 +241,20 @@ transformStmt env stmtTransformers = \case
 
   Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
     | Ghc.isSingletonBag binds
-      , [Ghc.L loc (Ghc.FunBind _ varName Ghc.MG
-          {Ghc.mg_alts = Ghc.L _
-            [Ghc.L _ Ghc.Match
-              { Ghc.m_pats = [Ghc.L _ (Ghc.VarPat _ argName)]
-              , Ghc.m_grhss = Ghc.GRHSs{
-                  Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
-              }
-            ]
-          })
-      ] <- Ghc.bagToList binds
-    , Ghc.occNameFS (Ghc.nameOccName $ Ghc.unLoc argName) == "_mut"
-    -> OpenDo (transformMutVar (Ghc.unLoc varName) : stmtTransformers)
+      , [Ghc.L loc
+          (Ghc.PatBind _
+            (Ghc.L _
+              (Ghc.ConPat _
+                (Ghc.L _ conName)
+                (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
+              )
+            )
+            Ghc.GRHSs
+              { Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
+          )
+        ] <- Ghc.bagToList binds
+    , conName == mutConName env
+    -> OpenDo (transformMutVar varName : stmtTransformers)
          ( \stmts ->
            let newVarDo =
                  Ghc.HsApp Ghc.noComments
@@ -269,6 +262,7 @@ transformStmt env stmtTransformers = \case
                    (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing) $ Ghc.noLocA stmts)
             in Ghc.LastStmt Ghc.noExtField (Ghc.L loc newVarDo) Nothing Ghc.noSyntaxExpr
          )
+
   stmt -> Result [transform env stmt] -- handles let statements and anything else
   where
     bodyToStmts bL b bnds =

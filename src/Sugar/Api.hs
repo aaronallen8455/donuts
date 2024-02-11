@@ -9,8 +9,8 @@ module Sugar.Api
   , lift
   , void
   , when
-  , letMut
   , (=:)
+  , Mut(..)
   , newMutVar
   , setMutVar
   , getMutVar
@@ -73,16 +73,12 @@ void = F.void
 when :: Monad f => Bool -> f () -> f ()
 when = M.when
 
--- use let _mut x = ... instead?
--- doesn't work. could use 'let x mut'
--- x <- letMut 12
-letMut :: Monad m => v -> a -> m ()
-letMut _ _ = pure ()
-
 -- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
 infixl 0 =:
 (=:) :: Monad m => a -> v -> StateT v m ()
 _ =: v = put v
+
+newtype Mut a = Mut a
 
 newMutVar :: Monad m => v -> StateT v m a -> m a
 newMutVar v = (`evalStateT` v)
