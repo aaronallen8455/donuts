@@ -9,3 +9,5 @@ import           GHC.Builtin.Names as Ghc
 import           GHC.Types.Name.Occurrence as Ghc
 import           GHC.Tc.Plugin as Ghc
 import           GHC.Utils.Outputable as Ghc
+import           GHC.Types.Name as Ghc
+import           GHC.Data.Bag as Ghc

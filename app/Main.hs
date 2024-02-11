@@ -44,9 +44,14 @@ s = runIdentity $ do
 bc :: IO ()
 bc = do
   putStrLn "here we go"
+  let x _mut = "yo"
+  x =: "yoyo"
+  print x
   forLoop [(1::Int)..12] $ \i -> do
     print i
     when (i == 7) continueL
     print (i * 2)
+    x =: x ++ "."
     when (i == 9) breakL
   putStrLn "the end"
+  print x

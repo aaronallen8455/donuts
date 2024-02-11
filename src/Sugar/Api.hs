@@ -11,11 +11,15 @@ module Sugar.Api
   , when
   , letMut
   , (=:)
+  , newMutVar
+  , setMutVar
+  , getMutVar
   ) where
 
 import qualified Control.Monad as M
 import qualified Control.Monad.Trans.Class as MT
 import           Control.Monad.Trans.Except
+import           Control.Monad.Trans.State
 import qualified Data.Functor as F
 
 earlyReturn :: Monad m => a -> ExceptT a m b
@@ -70,10 +74,21 @@ when :: Monad f => Bool -> f () -> f ()
 when = M.when
 
 -- use let _mut x = ... instead?
-letMut :: a -> a
-letMut = id
+-- doesn't work. could use 'let x mut'
+-- x <- letMut 12
+letMut :: Monad m => v -> a -> m ()
+letMut _ _ = pure ()
 
 -- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
 infixl 0 =:
-(=:) :: Monad m => a -> b -> m ()
-_ =: _ = pure ()
+(=:) :: Monad m => a -> v -> StateT v m ()
+_ =: v = put v
+
+newMutVar :: Monad m => v -> StateT v m a -> m a
+newMutVar v = (`evalStateT` v)
+
+setMutVar :: Monad m => v -> StateT v m ()
+setMutVar = put
+
+getMutVar :: Monad m => StateT v m v
+getMutVar = get
