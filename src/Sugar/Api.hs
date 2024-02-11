@@ -69,6 +69,7 @@ void = F.void
 when :: Monad f => Bool -> f () -> f ()
 when = M.when
 
+-- use let _mut x = ... instead?
 letMut :: a -> a
 letMut = id
 
