@@ -200,6 +200,7 @@ transformStmt
   -> Ghc.ExprStmt Ghc.GhcRn
   -> TransformStmtResult
 transformStmt env stmtTransformers = \case
+  -- TODO add mutVar binds to every statement no need for per case?
   Ghc.BodyStmt Ghc.NoExtField (Ghc.L bL body) _thenExpr Ghc.NoSyntaxExprRn ->
     Result $
     case transformBodyStmt body of
@@ -251,7 +252,8 @@ transformStmt env stmtTransformers = \case
                   Bind pat b bnds -> bindToStmts loc pat b bnds
          )
 
-  stmt -> Result [transform env stmt] -- handles let statements and anything else
+  stmt -> Result $ (mkMutVarBindStmt <$> mutVarBinds)
+            ++ [transform env stmt] -- handles let statements and anything else
   where
     bodyToStmts bL b bnds =
       (mkMutVarBindStmt <$> bnds) ++

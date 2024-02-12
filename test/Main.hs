@@ -179,3 +179,12 @@ mutVar4 =
           when (x == 8) $ earlyReturn 99
         pure 100
    in s @?= (99 :: Int)
+
+mutVar5 :: Assertion
+mutVar5 =
+  let s = runIdentity $ do
+        let Mut x = 1
+        let y = x + 1
+        x =: 99
+        pure y
+   in s @?= (2 :: Int)
