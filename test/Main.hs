@@ -23,6 +23,10 @@ tests = testGroup "statements"
   , testCase "continue + break" continueBreak
   , testCase "nested continue + break" nestedContinueBreak
   , testCase "repeatL state" repeatLState
+  , testCase "mut var 1" mutVar1
+  , testCase "mut var 2" mutVar2
+  , testCase "mut var 3" mutVar3
+  , testCase "mut var 4" mutVar4
   ]
 
 ifStatement1 :: Assertion
@@ -137,3 +141,41 @@ repeatLState =
           x <- get
           when (x == 3) breakL
    in s @?= (3 :: Int)
+
+mutVar1 :: Assertion
+mutVar1 =
+  let s = runIdentity $ do
+        let Mut x = 2
+        x =: x + 1
+        pure x
+   in s @?= (3 :: Int)
+
+mutVar2 :: Assertion
+mutVar2 =
+  let s = runIdentity $ do
+        let Mut x = 2
+        let Mut y = x
+        y =: y + 1
+        pure y
+   in s @?= (3 :: Int)
+
+mutVar3 :: Assertion
+mutVar3 =
+  let s = runIdentity $ do
+        let Mut x = 1
+        repeatL $ do
+          when (x == 5) $ earlyReturn 99
+          x =: x + 1
+        pure 100
+   in s @?= (99 :: Int)
+
+mutVar4 :: Assertion
+mutVar4 =
+  let s = runIdentity $ do
+        let Mut x = 1
+        repeatL $ do
+          forLoop [1..x] $ \i -> do
+            x =: x + 1
+          when (x == 8) $ earlyReturn 99
+        pure 100
+   in s @?= (99 :: Int)

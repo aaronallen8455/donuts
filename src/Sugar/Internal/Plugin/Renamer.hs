@@ -77,44 +77,21 @@ transform env x =
               (Ghc.noLocA $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts)
       _ -> Nothing
 
--- transformStmt should only deal with traversing the list of do statements.
--- It should accumulate a list of transformer functions that are applied in
--- order to each statement, possibly producing multiple statements which are
--- in turn passed to each subsequent transformer function.
--- It's important that these concerns are delineated so that transformations
--- can be layered on top of each other.
--- It needs to be able to look into the do expressions inside of the various
--- loop combinators, the individual transformers should not be concerned with that.
--- Should also look into if and case statements.
--- For convenience, the early return transformation will always be at the
--- bottom of the stack and will apply the 'transform' function at appropriate
--- points.
--- Should not pass statements with control function apps to transformer functions
--- transformStmt should handle recursive calls of transform, after checking
--- for control functions.
-
--- Take the simplest approach to mutable variables. Each introduction of a mutable
--- variable entails opening a new StateT layer with that value as its state.
--- Every bind and body statement will be preceded by binding out all the state
--- variables currently bound until the end of that do block.
--- Need to determine how this will play with variable shadowing warnings, are
--- those only generated in the renamer and afterwards names can be shadowed
--- with no consequence? Seems like yes.
--- Changes required:
--- - transformers can return multiple statements, although additional statements
---   would only be state binds that should not have additional statements tacked
---   to by following state transforms, so maybe return a single primary statement
---   and a list of state bind statements.
--- - Can no longer do a simple map over statements in a do block, instead it
---   needs to be an explicit recursion that needs to have access to the remaining
---   statements in that block so that a new block can be opened inside a state
---   transformer.
-
 data Stmt
   = Body (Ghc.HsExpr Ghc.GhcRn)
          [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
   | Bind (Ghc.LPat Ghc.GhcRn) (Ghc.HsExpr Ghc.GhcRn)
          [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
+
+extractStmtExpr :: Stmt -> Ghc.HsExpr Ghc.GhcRn
+extractStmtExpr = \case
+  Body x _ -> x
+  Bind _ x _ -> x
+
+mapStmtExpr :: (Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn) -> Stmt -> Stmt
+mapStmtExpr f = \case
+  Body x b -> Body (f x) b
+  Bind p x b -> Bind p (f x) b
 
 type StmtTransformer = Env -> Stmt -> Stmt
 
@@ -128,13 +105,14 @@ transformEarlyReturn env = \case
                      , breakLName env
                      , continueLName env
                      , mutVarAssignOpName env
+                     , newMutVarName env
                      ] body -> body
       body -> addApp (liftName env) body
 
 transformLoop :: StmtTransformer
 transformLoop env = \case
   Body body bnds
-    | isAppOf [breakLName env, continueLName env] body ->
+    | isAppOf [breakLName env, continueLName env, newMutVarName env] body ->
         Body body (fmap (addApp (liftName env)) <$> bnds)
     | otherwise -> Body (addApp (liftName env) body)
                         (fmap (addApp (liftName env)) <$> bnds)
@@ -155,13 +133,17 @@ transformMutVar varName env = \case
                (Ghc.nlHsVar $ setMutVarName env)
                rExpr
            )
-        $ fmap (addApp (liftName env)) <$> bnds
+           ((varName, Ghc.nl_HsVar $ getMutVarName env)
+                   : (fmap (addApp (liftName env)) <$> bnds))
     | oName == mutVarAssignOpName env
     -> -- assignment for outer var.
        Body expr ((varName, Ghc.nl_HsVar $ getMutVarName env)
                   : (fmap (addApp (liftName env)) <$> bnds))
   Body expr bnds
-    | isAppOf [breakLName env, continueLName env] expr -> Body expr bnds
+    | isAppOf [breakLName env, continueLName env, newMutVarName env] expr ->
+      Body expr
+           ((varName, Ghc.nl_HsVar $ getMutVarName env)
+            : (fmap (addApp $ liftName env) <$> bnds))
     | otherwise ->
       Body (addApp (liftName env) expr)
            ((varName, Ghc.nl_HsVar $ getMutVarName env)
@@ -204,14 +186,13 @@ transformStmts env stmtTransformers = go
      in case r of
           Result newStmts -> (Ghc.L loc <$> newStmts) ++ go stmts
           OpenDo newTransformers withStmts ->
-            [ Ghc.L loc $
-                withStmts (transformStmts env newTransformers stmts)
-            ]
+            Ghc.L loc <$>
+              withStmts (transformStmts env newTransformers stmts)
 
 data TransformStmtResult
   = Result [Ghc.ExprStmt Ghc.GhcRn]
   | OpenDo [StmtTransformer]
-           ([Ghc.ExprLStmt Ghc.GhcRn] -> Ghc.ExprStmt Ghc.GhcRn)
+           ([Ghc.ExprLStmt Ghc.GhcRn] -> [Ghc.ExprStmt Ghc.GhcRn])
 
 transformStmt
   :: Env
@@ -256,11 +237,18 @@ transformStmt env stmtTransformers = \case
     , conName == mutConName env
     -> OpenDo (transformMutVar varName : stmtTransformers)
          ( \stmts ->
-           let newVarDo =
-                 Ghc.HsApp Ghc.noComments
-                   (Ghc.L valL $ addApp (newMutVarName env) $ transform env val)
-                   (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing) $ Ghc.noLocA stmts)
-            in Ghc.LastStmt Ghc.noExtField (Ghc.L loc newVarDo) Nothing Ghc.noSyntaxExpr
+           let newVarDo = applyTransformers env stmtTransformers
+                 $ Body
+                     ( Ghc.HsApp Ghc.noComments
+                        (Ghc.L valL $ addApp (newMutVarName env) $ transform env val)
+                        (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing) $ Ghc.noLocA stmts)
+                     )
+                     []
+            in case newVarDo of
+                  Body b bnds ->
+                    (mkMutVarBindStmt <$> bnds)
+                    ++ [Ghc.LastStmt Ghc.noExtField (Ghc.L loc b) Nothing Ghc.noSyntaxExpr]
+                  Bind pat b bnds -> bindToStmts loc pat b bnds
          )
 
   stmt -> Result [transform env stmt] -- handles let statements and anything else
@@ -271,35 +259,44 @@ transformStmt env stmtTransformers = \case
                        (Ghc.L bL b)
                        (Ghc.SyntaxExprRn defaultThenExpr)
                        Ghc.noSyntaxExpr]
+
     bindToStmts bL pat b bnds =
       (mkMutVarBindStmt <$> bnds) ++
         [ Ghc.BindStmt defaultBindStmtX pat (Ghc.L bL b) ]
+
     mkMutVarBindStmt (name, expr) =
       Ghc.BindStmt defaultBindStmtX (Ghc.nlVarPat name) (Ghc.noLocA expr)
+
     transformBodyStmt = \case
       Ghc.HsPar x l (Ghc.L bL inner) r ->
-        case transformBodyStmt inner of
-          Body b bnds -> Body (Ghc.HsPar x l (Ghc.L bL b) r) bnds
-          s -> s
+        mapStmtExpr (\b -> Ghc.HsPar x l (Ghc.L bL b) r)
+          $ transformBodyStmt inner
       body | isAppOf loopNames body ->
-              Body (transformExpr env (transformLoop : stmtTransformers) body) []
+              Body (transformExpr env (transformLoop : stmtTransformers) body)
+                   mutVarBinds
            | isAppOf [whenName env] body ->
-              Body (transformExpr env stmtTransformers body) []
+              Body (transformExpr env stmtTransformers body)
+                   mutVarBinds
       Ghc.HsIf ix predi t e ->
         Body (Ghc.HsIf ix predi
                 (transformExpr env stmtTransformers <$> t)
                 (transformExpr env stmtTransformers <$> e)
-             ) []
+             ) mutVarBinds
       Ghc.HsCase cx scrut mg ->
         Body (Ghc.HsCase cx (transform env scrut)
                $ transformMatchGroup env stmtTransformers mg)
-             []
+             mutVarBinds
       body -> applyTransformers env stmtTransformers (Body (transform env body) [])
 
     transformBindStmt lPat body =
       applyTransformers env stmtTransformers (Bind lPat body [])
 
     loopNames = getLoopNames env
+
+    mutVarBinds =
+      case applyTransformers env stmtTransformers (Body Ghc.noExpr []) of
+        Body _ b -> b
+        Bind _ _ b -> b
 
 transformMatchGroup :: Env -> [StmtTransformer] -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
 transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
@@ -326,17 +323,16 @@ transformExpr env stmtTransformers = \case
   Ghc.HsPar x a inner b ->
     Ghc.HsPar x a (transformExpr env stmtTransformers <$> inner) b
   Ghc.OpApp x lExpr oExpr rExpr -> -- TODO check lExpr
-    Ghc.OpApp x (transform env lExpr) oExpr $ transformExpr env stmtTransformers <$> rExpr
+    Ghc.OpApp x (transform env lExpr) oExpr
+      $ transformExpr env stmtTransformers <$> rExpr
   s@(Ghc.HsApp x fExpr aExpr) | isAppOf (whenName env : loopNames) s ->
---     Ghc.HsApp x (transform env fExpr) (transformExpr env (transformLoop : stmtTransformers) <$> aExpr)
---   s@(Ghc.HsApp x fExpr aExpr) | isAppOf [whenName env] s ->
-    Ghc.HsApp x (transform env fExpr) (transformExpr env stmtTransformers <$> aExpr)
+    Ghc.HsApp x (transform env fExpr)
+      $ transformExpr env stmtTransformers <$> aExpr
   Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
     let newStmts = transformStmts env stmtTransformers <$> stmts
      in Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
-  expr -> case applyTransformers env stmtTransformers (Body (transform env expr) []) of
-            Body b _ -> b
-            Bind _ b _ -> b -- problematic...
+  expr -> extractStmtExpr $
+    applyTransformers env stmtTransformers (Body (transform env expr) [])
 
   where
     loopNames = getLoopNames env
@@ -349,7 +345,6 @@ getLoopNames :: Env -> [Ghc.Name]
 getLoopNames env =
   [ forLoopName env
   , repeatLName env
---  , whenName env
 --  , whileLoopName env
   ]
 
@@ -360,15 +355,28 @@ isTargetStmt
 isTargetStmt env = \case
   Ghc.LastStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
   Ghc.BodyStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
+  Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
+    | Ghc.isSingletonBag binds
+      , [Ghc.L _
+          (Ghc.PatBind _
+            (Ghc.L _
+              (Ghc.ConPat _
+                (Ghc.L _ conName)
+                _
+              )
+            ) _
+          )
+        ] <- Ghc.bagToList binds
+    -> conName == mutConName env
   _ -> False
   where
-    loopNames = whenName env : getLoopNames env
+    targetNames = whenName env : getLoopNames env
     isTargetExpr expr =
       -- look for application of earlyReturn or forLoop with a do block argument.
       -- This might involve looking through applications of $ and parens.
       isAppOf [earlyReturnName env] expr
         -- Lump loops in with early return for now
-      || isAppOf loopNames expr
+      || isAppOf targetNames expr
       || isIfThenElseWithEarlyReturn expr
       || isCaseWithTarget expr
     isIfThenElseWithEarlyReturn = \case
@@ -379,12 +387,12 @@ isTargetStmt env = \case
     exprContainsTarget = \case
       Ghc.HsPar _ _ inner _ -> exprContainsTarget $ Ghc.unLoc inner
       Ghc.HsApp _ expr _ | isAppOf [earlyReturnName env] $ Ghc.unLoc expr -> True
-      Ghc.HsApp _ fExpr arg -> isAppOf loopNames (Ghc.unLoc fExpr)
+      Ghc.HsApp _ fExpr arg -> isAppOf targetNames (Ghc.unLoc fExpr)
                             && exprContainsTarget (Ghc.unLoc arg)
       Ghc.OpApp _ (Ghc.L _ leftExpr)
                   (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
                   (Ghc.L _ rightExpr)
-        -> isAppOf loopNames leftExpr
+        -> isAppOf targetNames leftExpr
            && fName == Ghc.dollarName
            && exprContainsTarget rightExpr
       Ghc.HsDo _ (Ghc.DoExpr Nothing) (Ghc.L _ stmts)
@@ -411,23 +419,3 @@ isAppOf names = \case
   Ghc.HsApp _ fExpr _
     -> isAppOf names (Ghc.unLoc fExpr)
   _ -> False
-
--- isAppOfWithLifts :: Env -> [Ghc.Name] -> Ghc.HsExpr Ghc.GhcRn -> Bool
--- isAppOfWithLifts env names = \case
---   Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) argExpr
---     | fName == liftName env -> isAppOfWithLifts env names (Ghc.unLoc argExpr)
---   expr -> isAppOf names expr
-
--- It may be necessary to remove 'mut' and all the mut var names from the free
--- variables list of the do expr in which they occur. The renamer creates these
--- lists so they are expected to be there. Seems like this list goes into the
--- extension field of the Pattern constructor. What is it used for?
--- Could probably work around this not hijacking let bindings and instead have
--- something like `letMut foo := ...`
-
--- need a generic bottom up traversal that stops at do blocks and checks if
--- any of the statements meet some criteria and if so, only continue the traversal
--- in statements that are not sugared loops.
---
--- Transform each statement individually and also return something that indicates
--- what wrapper needs to be placed at the head of the do block?
