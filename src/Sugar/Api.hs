@@ -15,6 +15,7 @@ module Sugar.Api
   , newMutVar
   , setMutVar
   , getMutVar
+  , not
   ) where
 
 import qualified Control.Monad as M
@@ -22,6 +23,8 @@ import qualified Control.Monad.Trans.Class as MT
 import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.State
 import qualified Data.Functor as F
+import           Prelude hiding (not)
+import qualified Prelude
 
 earlyReturn :: Monad m => a -> ExceptT a m b
 earlyReturn = throwE
@@ -87,9 +90,14 @@ void :: Functor f => f a -> f ()
 void = F.void
 
 -- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
+-- TODO Use a data con instead to get :=
 infixl 0 =:
 (=:) :: Monad m => a -> v -> StateT v m ()
 _ =: v = put v
+
+-- infixl 0 :=
+-- data MutAssign a b =
+--   a := b
 
 newtype Mut a = Mut a
 
@@ -101,3 +109,6 @@ setMutVar = put
 
 getMutVar :: Monad m => StateT v m v
 getMutVar = get
+
+not :: Bool -> Bool
+not = Prelude.not

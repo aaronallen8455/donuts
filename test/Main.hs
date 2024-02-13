@@ -27,6 +27,7 @@ tests = testGroup "statements"
   , testCase "mut var 2" mutVar2
   , testCase "mut var 3" mutVar3
   , testCase "mut var 4" mutVar4
+  , testCase "whileL 1" whileL1
   ]
 
 ifStatement1 :: Assertion
@@ -188,3 +189,12 @@ mutVar5 =
         x =: 99
         pure y
    in s @?= (2 :: Int)
+
+whileL1 :: Assertion
+whileL1 =
+  let s = runIdentity $ do
+        let Mut x = 1
+        whileL (x < 5) $ do
+          x =: x + 1
+        pure x
+   in s @?= (5 :: Int)

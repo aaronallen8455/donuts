@@ -24,6 +24,7 @@ data Env = MkEnv
   , setMutVarName :: Ghc.Name
   , getMutVarName :: Ghc.Name
   , mutConName :: Ghc.Name
+  , notName :: Ghc.Name
   }
 
 renamedResultAction
@@ -50,6 +51,7 @@ renamedResultAction gblEnv group = do
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "setMutVar")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "getMutVar")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkDataOcc "Mut")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "not")
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)
@@ -316,6 +318,24 @@ transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap trans
 
 transformExpr :: Env -> [StmtTransformer] -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
 transformExpr env stmtTransformers = \case
+  Ghc.OpApp _ (Ghc.L _ (Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) predExp))
+              (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ oName)))
+              rExpr
+    | oName == Ghc.dollarName
+    , fName == whileLName env ->
+        addApp (repeatLName env)
+        . transformExpr env stmtTransformers
+        . transformWhileBody predExp
+        $ Ghc.unLoc rExpr
+
+  -- is this needed?
+  Ghc.HsApp _ (Ghc.L _ (Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) predExp)) argExp
+    | fName == whileLName env ->
+        addApp (repeatLName env)
+        . transformExpr env stmtTransformers
+        . transformWhileBody predExp
+        $ Ghc.unLoc argExp
+
   Ghc.HsLam lX mg ->
     Ghc.HsLam lX (transformMatchGroup env stmtTransformers mg)
   Ghc.HsPar x a inner b ->
@@ -335,6 +355,21 @@ transformExpr env stmtTransformers = \case
   where
     loopNames = getLoopNames env
 
+    transformWhileBody predExp = \case
+      Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
+        let whenBreak =
+              Ghc.HsApp Ghc.noComments
+                (addApp (whenName env) . addApp (notName env) <$> predExp)
+                (Ghc.noLocA (Ghc.HsVar Ghc.noExtField (Ghc.noLocA $ breakLName env)))
+            mkNewStmts ss =
+               Ghc.noLocA (Ghc.BodyStmt Ghc.NoExtField
+                               (Ghc.noLocA whenBreak)
+                               (Ghc.SyntaxExprRn defaultThenExpr)
+                               Ghc.noSyntaxExpr)
+                : ss
+         in Ghc.HsDo m (Ghc.DoExpr Nothing) (mkNewStmts <$> stmts)
+      expr -> transformExpr env stmtTransformers expr
+
 applyTransformers :: Env -> [StmtTransformer] -> Stmt -> Stmt
 applyTransformers env stmtTransformers st =
   foldr (\t s -> t env s) st stmtTransformers
@@ -343,7 +378,7 @@ getLoopNames :: Env -> [Ghc.Name]
 getLoopNames env =
   [ forLName env
   , repeatLName env
---  , whileLoopName env
+  , whileLName env
   ]
 
 isTargetStmt
