@@ -147,7 +147,7 @@ mutVar1 :: Assertion
 mutVar1 =
   let s = runIdentity $ do
         let Mut x = 2
-        x =: x + 1
+        x := x + 1
         pure x
    in s @?= (3 :: Int)
 
@@ -156,7 +156,7 @@ mutVar2 =
   let s = runIdentity $ do
         let Mut x = 2
         let Mut y = x
-        y =: y + 1
+        y := y + 1
         pure y
    in s @?= (3 :: Int)
 
@@ -166,7 +166,7 @@ mutVar3 =
         let Mut x = 1
         repeatL $ do
           whenL (x == 5) $ earlyReturn 99
-          x =: x + 1
+          x := x + 1
         pure 100
    in s @?= (99 :: Int)
 
@@ -176,7 +176,7 @@ mutVar4 =
         let Mut x = 1
         repeatL $ do
           forL [1..x] $ \i -> do
-            x =: x + 1
+            x := x + 1
           whenL (x == 8) $ earlyReturn 99
         pure 100
    in s @?= (99 :: Int)
@@ -186,7 +186,7 @@ mutVar5 =
   let s = runIdentity $ do
         let Mut x = 1
         let y = x + 1
-        x =: 99
+        x := 99
         pure y
    in s @?= (2 :: Int)
 
@@ -195,6 +195,6 @@ whileL1 =
   let s = runIdentity $ do
         let Mut x = 1
         whileL (x < 5) $ do
-          x =: x + 1
+          x := x + 1
         pure x
    in s @?= (5 :: Int)

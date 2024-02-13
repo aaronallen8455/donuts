@@ -46,7 +46,7 @@ renamedResultAction gblEnv group = do
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "breakL")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "lift")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "whenL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "=:")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc ":=")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "newMutVar")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "setMutVar")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "getMutVar")

@@ -10,7 +10,7 @@ module Donuts.Api
   , lift
   , void
   , whenL
-  , (=:)
+  , MutAssign(..)
   , Mut(..)
   , newMutVar
   , setMutVar
@@ -89,15 +89,9 @@ lift = MT.lift
 void :: Functor f => f a -> f ()
 void = F.void
 
--- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
--- TODO Use a data con instead to get :=
-infixl 0 =:
-(=:) :: Monad m => a -> v -> StateT v m ()
-_ =: v = put v
-
--- infixl 0 :=
--- data MutAssign a b =
---   a := b
+infixl 0 :=
+data MutAssign a b =
+  a := b
 
 newtype Mut a = Mut a
 

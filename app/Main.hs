@@ -45,13 +45,13 @@ bc :: IO ()
 bc = do
   putStrLn "here we go"
   let Mut x = "yo"
-  x =: "yoyo"
+  x := "yoyo"
   print x
   forL [(1::Int)..12] $ \i -> do
     print i
     whenL (i == 7) continueL
     print (i * 2)
-    x =: x ++ "."
+    x := x ++ "."
     whenL (i == 9) breakL
   putStrLn "the end"
   print x

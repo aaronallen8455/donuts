@@ -11,7 +11,7 @@ import the `Donuts` module.
 
 ### Examples
 
-Use `Mut` to bind a mutable variable and `=:` to assign it to a new value. The
+Use `Mut` to bind a mutable variable and `:=` to assign it to a new value. The
 mutability is scoped to the do block it is defined in as well as any nested
 loop bodies, if statements, and case statements within that block.
 
@@ -19,7 +19,7 @@ loop bodies, if statements, and case statements within that block.
 mutability :: Int
 mutability = runIdentity $ do
   let Mut x = 5
-  x =: x * 2
+  x := x * 2
   pure x
 ```
 
@@ -53,7 +53,7 @@ countdown = do
   let Mut x = 5
   whileL (x > 0) $ do
     print x
-    x =: x - 1
+    x := x - 1
 
 loopBreak :: IO ()
 loopBreak = do
@@ -61,6 +61,6 @@ loopBreak = do
   repeatL $ do
     inp <- getLine
     whenL (inp == "stop") breakL
-    strings =: inp : strings
+    strings := inp : strings
     print strings
 ```
