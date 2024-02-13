@@ -1,4 +1,4 @@
-module Sugar.Internal.GhcFacade
+module Donuts.Internal.GhcFacade
   ( module Ghc
   ) where
 

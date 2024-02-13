@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               monad-sugar
+name:               donuts
 version:            0.1.0.0
 -- synopsis:
 -- description:
@@ -18,10 +18,10 @@ common warnings
 
 library
     import:           warnings
-    exposed-modules:  Sugar.Plugin,
-                      Sugar.Api
-    other-modules: Sugar.Internal.GhcFacade
-                   Sugar.Internal.Plugin.Renamer
+    exposed-modules:  Donuts.Plugin,
+                      Donuts.Api
+    other-modules: Donuts.Internal.GhcFacade
+                   Donuts.Internal.Plugin.Renamer
     default-extensions:
       LambdaCase
     build-depends:    base ^>=4.19.0.0,
@@ -38,15 +38,15 @@ executable play
     -- other-extensions:
     build-depends:
         base ^>=4.19.0.0,
-        monad-sugar
+        donuts
 
     hs-source-dirs:   app
     default-language: GHC2021
 
-test-suite monad-sugar-test
+test-suite donuts-test
     import:           warnings
     default-language: GHC2021
-    ghc-options: -fplugin Sugar.Plugin
+    ghc-options: -fplugin Donuts.Plugin
     -- other-modules:
     -- other-extensions:
     type:             exitcode-stdio-1.0
@@ -54,7 +54,7 @@ test-suite monad-sugar-test
     main-is:          Main.hs
     build-depends:
         base ^>=4.19.0.0,
-        monad-sugar,
+        donuts,
         tasty,
         tasty-hunit,
         mtl

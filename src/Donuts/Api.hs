@@ -1,4 +1,4 @@
-module Sugar.Api
+module Donuts.Api
   ( earlyReturn
   , earlyReturnWrapDo
   , forL

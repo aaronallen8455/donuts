@@ -1,8 +1,8 @@
-{-# OPTIONS_GHC -fplugin Sugar.Plugin  #-}
+{-# OPTIONS_GHC -fplugin Donuts.Plugin  #-}
 module Main where
 
 import           Data.Functor.Identity
-import           Sugar.Api
+import           Donuts.Api
 
 main :: IO ()
 main = do

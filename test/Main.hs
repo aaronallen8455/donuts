@@ -3,7 +3,7 @@ module Main (main) where
 import           Control.Monad.State
 import           Control.Monad.Writer
 import           Data.Functor.Identity
-import           Sugar.Api
+import           Donuts.Api
 import           Test.Tasty
 import           Test.Tasty.HUnit
 

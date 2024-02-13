@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Sugar.Internal.Plugin.Renamer
+module Donuts.Internal.Plugin.Renamer
   ( renamedResultAction
   ) where
 
@@ -7,7 +7,7 @@ import           Data.Data (Data)
 import qualified Data.Data as Data
 import           Data.Maybe
 
-import qualified Sugar.Internal.GhcFacade as Ghc
+import qualified Donuts.Internal.GhcFacade as Ghc
 
 data Env = MkEnv
   { earlyReturnName :: Ghc.Name
@@ -32,26 +32,26 @@ renamedResultAction
   -> Ghc.HsGroup Ghc.GhcRn
   -> Ghc.TcM (Ghc.TcGblEnv, Ghc.HsGroup Ghc.GhcRn)
 renamedResultAction gblEnv group = do
-  Ghc.Found _ sugarMod <-
+  Ghc.Found _ donutsMod <-
     Ghc.runTcPluginM $
-      Ghc.findImportedModule (Ghc.mkModuleName "Sugar.Api") Ghc.NoPkgQual
+      Ghc.findImportedModule (Ghc.mkModuleName "Donuts.Api") Ghc.NoPkgQual
 
   env <- Ghc.runTcPluginM $ MkEnv
-    <$> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturn")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturnWrapDo")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "forL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whileL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "continueL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "breakL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "lift")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whenL")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "=:")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "newMutVar")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "setMutVar")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "getMutVar")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkDataOcc "Mut")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "not")
+    <$> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "earlyReturn")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "earlyReturnWrapDo")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "forL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "whileL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "repeatL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "continueL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "breakL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "lift")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "whenL")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "=:")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "newMutVar")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "setMutVar")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "getMutVar")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc "Mut")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "not")
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)

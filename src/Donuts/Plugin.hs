@@ -1,9 +1,9 @@
-module Sugar.Plugin
+module Donuts.Plugin
   ( plugin
   ) where
 
-import qualified Sugar.Internal.GhcFacade as Ghc
-import qualified Sugar.Internal.Plugin.Renamer as Renamer
+import qualified Donuts.Internal.GhcFacade as Ghc
+import qualified Donuts.Internal.Plugin.Renamer as Renamer
 
 plugin :: Ghc.Plugin
 plugin = Ghc.defaultPlugin
