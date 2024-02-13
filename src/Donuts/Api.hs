@@ -9,7 +9,7 @@ module Donuts.Api
   , LoopControl(..)
   , lift
   , void
-  , whenL
+  , when
   , MutAssign(..)
   , Mut(..)
   , newMutVar
@@ -58,7 +58,7 @@ whileL
 whileL _pred _body =
   -- Rewrite this to
   -- repeatL $ do
-  --   whenL (not pred) breakL
+  --   when (not pred) breakL
   --   ...
   pure ()
 
@@ -79,8 +79,8 @@ continueL = throwE Continue
 breakL :: Monad m => ExceptT LoopControl m a
 breakL = throwE Break
 
-whenL :: Monad f => Bool -> f () -> f ()
-whenL = M.when
+when :: Monad f => Bool -> f () -> f ()
+when = M.when
 
 -- redefined so that the name is available to the plugin even if mtl is not a dependency.
 lift :: (MT.MonadTrans t, Monad m) => m a -> t m a

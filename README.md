@@ -29,7 +29,7 @@ mutability = runIdentity $ do
 secretNum :: IO Int
 secretNum = do
   inp <- getLine
-  whenL (inp == "secret") (earlyReturn 42)
+  when (inp == "secret") (earlyReturn 42)
   putStrLn "Invalid password"
   pure 0
 ```
@@ -44,8 +44,8 @@ of their counterparts from imperative languages.
 skipEven :: IO ()
 skipEven = do
   let i = 20 :: Int
-  forL [1..i] $ \j ->
-    whenL (even j) continueL
+  forL [1..i] $ \j -> do
+    when (even j) continueL
     print j
 
 countdown :: IO ()
@@ -60,7 +60,7 @@ loopBreak = do
   let Mut strings = []
   repeatL $ do
     inp <- getLine
-    whenL (inp == "stop") breakL
+    when (inp == "stop") breakL
     strings := inp : strings
     print strings
 ```

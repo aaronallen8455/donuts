@@ -14,8 +14,8 @@ tests :: TestTree
 tests = testGroup "statements"
   [ testCase "if 1" ifStatement1
   , testCase "if 2" ifStatement2
-  , testCase "whenL 1" when1
-  , testCase "whenL 2" when2
+  , testCase "when 1" when1
+  , testCase "when 2" when2
   , testCase "case 1" case1
   , testCase "case 2" case2
   , testCase "case 3" case3
@@ -52,14 +52,14 @@ ifStatement2 =
 when1 :: Assertion
 when1 =
   let s = runIdentity $ do
-        whenL True (earlyReturn 1)
+        when True (earlyReturn 1)
         pure (3 :: Int)
    in s @?= 1
 
 when2 :: Assertion
 when2 =
   let s = runIdentity $ do
-        whenL True $ earlyReturn 1
+        when True $ earlyReturn 1
         pure (3 :: Int)
    in s @?= 1
 
@@ -90,7 +90,7 @@ case3 =
         case succ 'a' of
           'a' -> pure (9 :: Int)
           'b' -> do
-            whenL True $ earlyReturn 1
+            when True $ earlyReturn 1
             pure 2
           _ -> pure 8
    in s @?= 1
@@ -99,7 +99,7 @@ for1 :: Assertion
 for1 =
   let s = runIdentity $ do
         forL [(2::Int)..8] $ \i -> do
-          whenL (i == 5) $ earlyReturn (1 :: Int)
+          when (i == 5) $ earlyReturn (1 :: Int)
         pure 2
    in s @?= 1
 
@@ -109,9 +109,9 @@ continueBreak =
         tell "start"
         forL [(1::Int)..12] $ \i -> do
           tell $ show i
-          whenL (i == 7) continueL
+          when (i == 7) continueL
           tell $ show (i * 2)
-          whenL (i == 9) breakL
+          when (i == 9) breakL
         tell "end"
    in s @?= "start122436485106127816918end"
 
@@ -121,16 +121,16 @@ nestedContinueBreak =
         tell "start"
         forL [(1::Int)..12] $ \i -> do
           tell $ show i
-          whenL (i == 7) continueL
+          when (i == 7) continueL
           forL [1 .. i] $ \j -> do
             tell $ show j
             if even j
                then continueL
                else do
-                 whenL (j + i > 8) breakL
+                 when (j + i > 8) breakL
                  tell "."
           tell $ show (i * 2)
-          whenL (i == 9) breakL
+          when (i == 9) breakL
         tell "end"
    in s @?= "start11.221.2431.23.641.23.4851.23.451061.2312781169118end"
 
@@ -140,7 +140,7 @@ repeatLState =
         repeatL $ do
           modify' succ
           x <- get
-          whenL (x == 3) breakL
+          when (x == 3) breakL
    in s @?= (3 :: Int)
 
 mutVar1 :: Assertion
@@ -165,7 +165,7 @@ mutVar3 =
   let s = runIdentity $ do
         let Mut x = 1
         repeatL $ do
-          whenL (x == 5) $ earlyReturn 99
+          when (x == 5) $ earlyReturn 99
           x := x + 1
         pure 100
    in s @?= (99 :: Int)
@@ -177,7 +177,7 @@ mutVar4 =
         repeatL $ do
           forL [1..x] $ \i -> do
             x := x + 1
-          whenL (x == 8) $ earlyReturn 99
+          when (x == 8) $ earlyReturn 99
         pure 100
    in s @?= (99 :: Int)
 
