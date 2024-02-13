@@ -1,14 +1,15 @@
 module Sugar.Api
   ( earlyReturn
   , earlyReturnWrapDo
-  , forLoop
+  , forL
+  , whileL
   , repeatL
   , continueL
   , breakL
   , LoopControl(..)
   , lift
   , void
-  , when
+  , whenL
   , (=:)
   , Mut(..)
   , newMutVar
@@ -32,18 +33,31 @@ data LoopControl
   = Break
   | Continue
 
-forLoop
+forL
   :: (Monad m, Foldable f)
   => f a
   -> (a -> ExceptT LoopControl m ())
   -> m ()
-forLoop fa f = foldr go (pure ()) fa
+forL fa f = foldr go (pure ()) fa
   where
   go x acc = do
     runExceptT (f x) >>= \case
       Right () -> acc
       Left Continue -> acc
       Left Break -> pure ()
+  {-# INLINE go #-}
+
+whileL
+  :: Monad m
+  => Bool
+  -> ExceptT LoopControl m ()
+  -> m ()
+whileL _pred _body =
+  -- Rewrite this to
+  -- repeatL $ do
+  --   whenL pred breakL
+  --   ...
+  pure ()
 
 repeatL
   :: Monad m
@@ -62,16 +76,15 @@ continueL = throwE Continue
 breakL :: Monad m => ExceptT LoopControl m a
 breakL = throwE Break
 
+whenL :: Monad f => Bool -> f () -> f ()
+whenL = M.when
+
 -- redefined so that the name is available to the plugin even if mtl is not a dependency.
 lift :: (MT.MonadTrans t, Monad m) => m a -> t m a
 lift = MT.lift
 
 void :: Functor f => f a -> f ()
 void = F.void
-
--- TODO should be able to utilize the existing when function.
-when :: Monad f => Bool -> f () -> f ()
-when = M.when
 
 -- can't be used in combo with ($). Is it possible to hijack let syntax somehow?
 infixl 0 =:

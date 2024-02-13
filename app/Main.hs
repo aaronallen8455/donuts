@@ -11,10 +11,10 @@ main = do
 blah :: IO Int
 blah = do
   i <- getLine
-  forLoop [1::Int,2,3,4,5] $ \ix -> do
-    when (show ix == i) $ earlyReturn 9
+  forL [1::Int,2,3,4,5] $ \ix -> do
+    whenL (show ix == i) $ earlyReturn 9
     print ix
-  when (i == "no") $
+  whenL (i == "no") $
     earlyReturn 5
   if i == "yes"
      then earlyReturn 2
@@ -30,15 +30,15 @@ blah = do
 
 k :: Int
 k = runIdentity $ do
---   when True (earlyReturn 1)
-  forLoop [(2::Int)..8] $ \i -> do
-    when (i == 5) $ earlyReturn 1
+--   whenL True (earlyReturn 1)
+  forL [(2::Int)..8] $ \i -> do
+    whenL (i == 5) $ earlyReturn 1
   pure 2
 
 
 s :: Int
 s = runIdentity $ do
-        when True (earlyReturn 1)
+        whenL True (earlyReturn 1)
         pure (3 :: Int)
 
 bc :: IO ()
@@ -47,11 +47,11 @@ bc = do
   let Mut x = "yo"
   x =: "yoyo"
   print x
-  forLoop [(1::Int)..12] $ \i -> do
+  forL [(1::Int)..12] $ \i -> do
     print i
-    when (i == 7) continueL
+    whenL (i == 7) continueL
     print (i * 2)
     x =: x ++ "."
-    when (i == 9) breakL
+    whenL (i == 9) breakL
   putStrLn "the end"
   print x

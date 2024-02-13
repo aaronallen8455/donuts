@@ -12,14 +12,12 @@ import qualified Sugar.Internal.GhcFacade as Ghc
 data Env = MkEnv
   { earlyReturnName :: Ghc.Name
   , earlyReturnWrapDoName :: Ghc.Name
-  , forLoopName :: Ghc.Name
+  , forLName :: Ghc.Name
+  , whileLName :: Ghc.Name
   , repeatLName :: Ghc.Name
   , continueLName :: Ghc.Name
   , breakLName :: Ghc.Name
---   , repeatLoopName :: Ghc.Name
---   , whileLoopName :: Ghc.Name
   , liftName :: Ghc.Name
---   , voidName :: Ghc.Name
   , whenName :: Ghc.Name
   , mutVarAssignOpName :: Ghc.Name
   , newMutVarName :: Ghc.Name
@@ -40,15 +38,13 @@ renamedResultAction gblEnv group = do
   env <- Ghc.runTcPluginM $ MkEnv
     <$> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturn")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "earlyReturnWrapDo")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "forLoop")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "forL")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whileL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "continueL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "breakL")
---     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "repeatLoop")
---     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whileLoop")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "lift")
---     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "void")
-    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "when")
+    <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "whenL")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "=:")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "newMutVar")
     <*> Ghc.lookupOrig sugarMod (Ghc.mkVarOcc "setMutVar")
@@ -345,7 +341,7 @@ applyTransformers env stmtTransformers st =
 
 getLoopNames :: Env -> [Ghc.Name]
 getLoopNames env =
-  [ forLoopName env
+  [ forLName env
   , repeatLName env
 --  , whileLoopName env
   ]
@@ -374,7 +370,7 @@ isTargetStmt env = \case
   where
     targetNames = whenName env : getLoopNames env
     isTargetExpr expr =
-      -- look for application of earlyReturn or forLoop with a do block argument.
+      -- look for application of earlyReturn or forL with a do block argument.
       -- This might involve looking through applications of $ and parens.
       isAppOf [earlyReturnName env] expr
         -- Lump loops in with early return for now
