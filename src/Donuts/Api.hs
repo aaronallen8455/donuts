@@ -58,7 +58,7 @@ whileL
 whileL _pred _body =
   -- Rewrite this to
   -- repeatL $ do
-  --   whenL pred breakL
+  --   whenL (not pred) breakL
   --   ...
   pure ()
 

@@ -8,4 +8,5 @@ import qualified Donuts.Internal.Plugin.Renamer as Renamer
 plugin :: Ghc.Plugin
 plugin = Ghc.defaultPlugin
   { Ghc.renamedResultAction = const Renamer.renamedResultAction
+  , Ghc.pluginRecompile = Ghc.purePlugin
   }
