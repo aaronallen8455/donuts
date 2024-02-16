@@ -1,12 +1,14 @@
-{-# OPTIONS_GHC -fplugin Donuts.Plugin  #-}
+{-# OPTIONS_GHC -fplugin Donuts.Plugin -O2  #-}
 module Main where
 
+import           Data.Foldable
+import           Control.Monad.State
 import           Data.Functor.Identity
 import           Donuts.Api
 
 main :: IO ()
 main = do
-  putStrLn "Hello, Haskell!"
+  print $ fib2a 100000
 
 blah :: IO Int
 blah = do
@@ -55,3 +57,77 @@ bc = do
     when (i == 9) breakL
   putStrLn "the end"
   print x
+
+ac :: IO ()
+ac = do
+  let Mut strings = []
+  repeatL $ do
+    inp <- getLine
+    when (inp == "stop") breakL
+    strings := inp : strings
+    print strings
+
+zz :: IO ()
+zz = do
+  i <- getLine
+  case i of
+    "..." -> do
+      let Mut x = True
+      x := False
+      print x
+    _ -> pure ()
+
+fib1 :: Int -> Int
+fib1 n = runIdentity $ do
+  let Mut a = 0
+  let Mut b = 1
+  let Mut i = 0
+  whileL (i < n) $ do
+    let !c = b
+    b := a + b
+    a := c
+    i := i + 1
+  pure b
+
+fib2 :: Int -> Int
+fib2 n = runIdentity $ do
+  let Mut a = 0
+  let Mut b = 1
+  forL [1..n] $ \_ -> do
+    let !c = b
+    b := a + b
+    a := c
+  pure b
+
+fib2a :: Int -> Int
+fib2a n = runIdentity $ do
+  let Mut x = (0, 1)
+  forL [1..n] $ \_ -> do
+    let (!a, !b) = x
+    x := (b, a + b)
+  pure $ snd x
+
+fib3 :: [Int]
+fib3 = 0 : 1 : zipWith (+) fib3 (drop 1 fib3)
+
+fib4 :: Int -> Int
+fib4 n = fib3 !! n
+
+fib5 :: Int -> Int
+fib5 n = (`evalState` (0,1,0)) $ do
+  let go = do
+        (a,b,i) <- get
+        if i == n
+           then pure b
+           else do
+             put (b, a+b, i+1)
+             go
+  go
+
+fib6 :: Int -> Int
+fib6 n = (`evalState` (0,1)) $ do
+  for_ [1..n] $ \_ -> do
+    (!a,!b) <- get
+    put (b, a+b)
+  (a,b) <- get
+  pure b

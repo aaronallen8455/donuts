@@ -8,7 +8,6 @@ module Donuts.Api
   , breakL
   , LoopControl(..)
   , lift
-  , void
   , when
   , MutAssign(..)
   , Mut(..)
@@ -22,7 +21,6 @@ import qualified Control.Monad as M
 import qualified Control.Monad.Trans.Class as MT
 import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.State
-import qualified Data.Functor as F
 import           Prelude hiding (not)
 import qualified Prelude
 
@@ -85,9 +83,6 @@ when = M.when
 -- redefined so that the name is available to the plugin even if mtl is not a dependency.
 lift :: (MT.MonadTrans t, Monad m) => m a -> t m a
 lift = MT.lift
-
-void :: Functor f => f a -> f ()
-void = F.void
 
 infixl 0 :=
 data MutAssign a b =

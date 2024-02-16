@@ -54,8 +54,8 @@ test-suite donuts-test
 --     -- other-extensions:
 --     build-depends:
 --         base ^>=4.19.0.0,
---         donuts
+--         donuts,
+--         mtl
 -- 
 --     hs-source-dirs:   app
 --     default-language: GHC2021
-
