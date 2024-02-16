@@ -77,79 +77,81 @@ transform env x =
 
 data Stmt
   = Body (Ghc.HsExpr Ghc.GhcRn)
-         [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
   | Bind (Ghc.LPat Ghc.GhcRn) (Ghc.HsExpr Ghc.GhcRn)
-         [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
 
 extractStmtExpr :: Stmt -> Ghc.HsExpr Ghc.GhcRn
 extractStmtExpr = \case
-  Body x _ -> x
-  Bind _ x _ -> x
+  Body x -> x
+  Bind _ x -> x
 
 mapStmtExpr :: (Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn) -> Stmt -> Stmt
 mapStmtExpr f = \case
-  Body x b -> Body (f x) b
-  Bind p x b -> Bind p (f x) b
+  Body x -> Body (f x)
+  Bind p x -> Bind p (f x)
 
-type StmtTransformer = Env -> Stmt -> Stmt
+data StmtTransformer =
+  MkStmtTransformer
+    { applyTransform :: Env -> Stmt -> Stmt
+    , bindVars :: Env
+               -> [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
+               -> [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
+    }
 
 transformEarlyReturn :: StmtTransformer
-transformEarlyReturn env = \case
-  Body body bnds -> Body (transformBodyStmt body) bnds
-  Bind pat body bnds -> Bind pat (addApp (liftName env) body) bnds
-  where
-    transformBodyStmt = \case
-      body | isAppOf [ earlyReturnName env
-                     , breakLName env
-                     , continueLName env
-                     , mutVarAssignOpName env
-                     , newMutVarName env
-                     ] body -> body
-      body -> addApp (liftName env) body
+transformEarlyReturn = MkStmtTransformer
+  { applyTransform = \env -> \case
+      Body body -> Body $
+        if isAppOf [ earlyReturnName env
+                   , breakLName env
+                   , continueLName env
+                   , mutVarAssignOpName env
+                   , newMutVarName env
+                   ] body
+        then body
+        else addApp (liftName env) body
+      Bind pat body -> Bind pat (addApp (liftName env) body)
+  , bindVars = const id
+  }
 
 transformLoop :: StmtTransformer
-transformLoop env = \case
-  Body body bnds
-    | isAppOf [breakLName env, continueLName env, newMutVarName env] body ->
-        Body body (fmap (addApp (liftName env)) <$> bnds)
-    | otherwise -> Body (addApp (liftName env) body)
-                        (fmap (addApp (liftName env)) <$> bnds)
-  Bind pat body bnds ->
-    Bind pat (addApp (liftName env) body)
-      (fmap (addApp (liftName env)) <$> bnds)
+transformLoop = MkStmtTransformer
+  { applyTransform = \env -> \case
+      Body body
+        | isAppOf [breakLName env, continueLName env, newMutVarName env] body ->
+            Body body
+        | otherwise -> Body (addApp (liftName env) body)
+      Bind pat body ->
+        Bind pat (addApp (liftName env) body)
+  , bindVars = fmap . fmap . addApp . liftName
+  }
 
 transformMutVar :: Ghc.Name -> StmtTransformer
-transformMutVar varName env = \case
-  Body expr@(Ghc.OpApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ lName)))
-                         (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ oName)))
-                         rExpr)
-       bnds
-    | oName == mutVarAssignOpName env
-    , lName == varName
-    -> -- asignment of this variable
-      Body ( Ghc.HsApp Ghc.noComments
-               (Ghc.nlHsVar $ setMutVarName env)
-               rExpr
-           )
-           ((varName, Ghc.nl_HsVar $ getMutVarName env)
-                   : (fmap (addApp (liftName env)) <$> bnds))
-    | oName == mutVarAssignOpName env
-    -> -- assignment for outer var.
-       Body expr ((varName, Ghc.nl_HsVar $ getMutVarName env)
-                  : (fmap (addApp (liftName env)) <$> bnds))
-  Body expr bnds
-    | isAppOf [breakLName env, continueLName env, newMutVarName env] expr ->
+transformMutVar varName = MkStmtTransformer
+  { applyTransform = \env -> \case
+      Body expr@(Ghc.OpApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ lName)))
+                             (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ oName)))
+                             rExpr)
+        | oName == mutVarAssignOpName env
+        , lName == varName
+        -> -- asignment of this variable
+          Body ( Ghc.HsApp Ghc.noComments
+                   (Ghc.nlHsVar $ setMutVarName env)
+                   rExpr
+               )
+        | oName == mutVarAssignOpName env
+        -> -- assignment for outer var.
+           Body expr
       Body expr
-           ((varName, Ghc.nl_HsVar $ getMutVarName env)
-            : (fmap (addApp $ liftName env) <$> bnds))
-    | otherwise ->
-      Body (addApp (liftName env) expr)
-           ((varName, Ghc.nl_HsVar $ getMutVarName env)
-            : (fmap (addApp $ liftName env) <$> bnds))
-  Bind pat body bnds ->
-    Bind pat (addApp (liftName env) body)
-         ((varName, Ghc.nl_HsVar $ getMutVarName env)
-          : (fmap (addApp $ liftName env) <$> bnds))
+        | isAppOf [breakLName env, continueLName env, newMutVarName env] expr ->
+          Body expr
+        | otherwise ->
+          Body (addApp (liftName env) expr)
+      Bind pat body ->
+        Bind pat (addApp (liftName env) body)
+  , bindVars = \env bnds ->
+      (varName, Ghc.nl_HsVar $ getMutVarName env)
+       : (fmap (addApp $ liftName env) <$> bnds)
+  }
 
 addApp :: Ghc.Name -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
 addApp name expr
@@ -197,27 +199,24 @@ transformStmt
   -> [StmtTransformer]
   -> Ghc.ExprStmt Ghc.GhcRn
   -> TransformStmtResult
-transformStmt env stmtTransformers = \case
-  -- TODO add mutVar binds to every statement no need for per case?
+transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
   Ghc.BodyStmt Ghc.NoExtField (Ghc.L bL body) _thenExpr Ghc.NoSyntaxExprRn ->
     Result $
     case transformBodyStmt body of
-      Body b bnds -> bodyToStmts bL b bnds
-      Bind pat b bnds -> bindToStmts bL pat b bnds
+      Body b -> bodyToStmts bL b
+      Bind pat b -> bindToStmts bL pat b
 
   -- TODO Mut bind
   Ghc.BindStmt _x pat (Ghc.L bL body) -> Result $
     case transformBindStmt pat body of
-      Body b bnds -> bodyToStmts bL b bnds
-      Bind p b bnds -> bindToStmts bL p b bnds
+      Body b -> bodyToStmts bL b
+      Bind p b -> bindToStmts bL p b
 
   Ghc.LastStmt Ghc.NoExtField (Ghc.L bL body) Nothing Ghc.NoSyntaxExprRn ->
     Result $
     case transformBodyStmt body of
-      Body b bnds ->
-        (mkMutVarBindStmt <$> bnds)
-        ++ [Ghc.LastStmt Ghc.noExtField (Ghc.L bL b) Nothing Ghc.noSyntaxExpr]
-      Bind pat b bnds -> bindToStmts bL pat b bnds
+      Body b -> [Ghc.LastStmt Ghc.noExtField (Ghc.L bL b) Nothing Ghc.noSyntaxExpr]
+      Bind pat b -> bindToStmts bL pat b
 
   Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
     | Ghc.isSingletonBag binds
@@ -240,32 +239,30 @@ transformStmt env stmtTransformers = \case
                  $ Body
                      ( Ghc.HsApp Ghc.noComments
                         (Ghc.L valL $ addApp (newMutVarName env) $ transform env val)
-                        (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing) $ Ghc.noLocA stmts)
+                        (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing)
+                                    $ Ghc.noLocA stmts)
                      )
-                     []
-            in case newVarDo of
-                  Body b bnds ->
-                    (mkMutVarBindStmt <$> bnds)
-                    ++ [Ghc.LastStmt Ghc.noExtField (Ghc.L loc b) Nothing Ghc.noSyntaxExpr]
-                  Bind pat b bnds -> bindToStmts loc pat b bnds
+            in mutVarBindStmts ++ case newVarDo of
+                  Body b ->
+                    [Ghc.LastStmt Ghc.noExtField (Ghc.L loc b) Nothing Ghc.noSyntaxExpr]
+                  Bind pat b -> bindToStmts loc pat b
          )
 
-  stmt -> Result $ (mkMutVarBindStmt <$> mutVarBinds)
-            ++ [transform env stmt] -- handles let statements and anything else
+  _ -> Result [transform env stmt] -- handles let statements and anything else
+
   where
-    bodyToStmts bL b bnds =
-      (mkMutVarBindStmt <$> bnds) ++
-        [ Ghc.BodyStmt Ghc.noExtField
-                       (Ghc.L bL b)
-                       (Ghc.SyntaxExprRn defaultThenExpr)
-                       Ghc.noSyntaxExpr]
+    addVarBinds = \case
+      Result stmts -> Result $ mutVarBindStmts ++ stmts
+      x -> x
 
-    bindToStmts bL pat b bnds =
-      (mkMutVarBindStmt <$> bnds) ++
+    bodyToStmts bL b =
+      [ Ghc.BodyStmt Ghc.noExtField
+                     (Ghc.L bL b)
+                     (Ghc.SyntaxExprRn defaultThenExpr)
+                     Ghc.noSyntaxExpr]
+
+    bindToStmts bL pat b =
         [ Ghc.BindStmt defaultBindStmtX pat (Ghc.L bL b) ]
-
-    mkMutVarBindStmt (name, expr) =
-      Ghc.BindStmt defaultBindStmtX (Ghc.nlVarPat name) (Ghc.noLocA expr)
 
     transformBodyStmt = \case
       Ghc.HsPar x l (Ghc.L bL inner) r ->
@@ -273,30 +270,28 @@ transformStmt env stmtTransformers = \case
           $ transformBodyStmt inner
       body | isAppOf loopNames body ->
               Body (transformExpr env (transformLoop : stmtTransformers) body)
-                   mutVarBinds
            | isAppOf [whenName env] body ->
               Body (transformExpr env stmtTransformers body)
-                   mutVarBinds
       Ghc.HsIf ix predi t e ->
         Body (Ghc.HsIf ix predi
                 (transformExpr env stmtTransformers <$> t)
                 (transformExpr env stmtTransformers <$> e)
-             ) mutVarBinds
+             )
       Ghc.HsCase cx scrut mg ->
         Body (Ghc.HsCase cx (transform env scrut)
                $ transformMatchGroup env stmtTransformers mg)
-             mutVarBinds
-      body -> applyTransformers env stmtTransformers (Body (transform env body) [])
+      body -> applyTransformers env stmtTransformers (Body (transform env body))
 
     transformBindStmt lPat body =
-      applyTransformers env stmtTransformers (Bind lPat body [])
+      applyTransformers env stmtTransformers (Bind lPat body)
 
     loopNames = getLoopNames env
 
-    mutVarBinds =
-      case applyTransformers env stmtTransformers (Body Ghc.noExpr []) of
-        Body _ b -> b
-        Bind _ _ b -> b
+    mkMutVarBindStmt (name, expr) =
+      Ghc.BindStmt defaultBindStmtX (Ghc.nlVarPat name) (Ghc.noLocA expr)
+
+    mutVarBindStmts = mkMutVarBindStmt
+                  <$> foldr (`bindVars` env) [] stmtTransformers
 
 transformMatchGroup :: Env -> [StmtTransformer] -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
 transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
@@ -350,7 +345,7 @@ transformExpr env stmtTransformers = \case
     let newStmts = transformStmts env stmtTransformers <$> stmts
      in Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
   expr -> extractStmtExpr $
-    applyTransformers env stmtTransformers (Body (transform env expr) [])
+    applyTransformers env stmtTransformers (Body (transform env expr))
 
   where
     loopNames = getLoopNames env
@@ -372,7 +367,7 @@ transformExpr env stmtTransformers = \case
 
 applyTransformers :: Env -> [StmtTransformer] -> Stmt -> Stmt
 applyTransformers env stmtTransformers st =
-  foldr (\t s -> t env s) st stmtTransformers
+  foldr (`applyTransform` env) st stmtTransformers
 
 getLoopNames :: Env -> [Ghc.Name]
 getLoopNames env =
