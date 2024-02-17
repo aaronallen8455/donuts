@@ -12,6 +12,7 @@ module Donuts.Api
   , MutAssign(..)
   , Mut(..)
   , newMutVar
+  , evalMutVarState
   , setMutVar
   , getMutVar
   , not
@@ -91,7 +92,10 @@ data MutAssign a b =
 newtype Mut a = Mut a
 
 newMutVar :: Monad m => v -> StateT v m a -> m a
-newMutVar v = (`evalStateT` v)
+newMutVar = flip evalMutVarState
+
+evalMutVarState :: Monad m => StateT v m a -> v -> m a
+evalMutVarState = evalStateT
 
 setMutVar :: Monad m => v -> StateT v m ()
 setMutVar = put

@@ -21,6 +21,13 @@ mutability = runIdentity $ do
   let Mut x = 5
   x := x * 2
   pure x
+
+mutBind :: Maybe Int
+mutBind = do
+  Mut x <- Just 22
+  x := 1
+  guard (odd x)
+  pure x
 ```
 
 `earlyReturn` lets you short circuit a monadic computation, returning a given value.

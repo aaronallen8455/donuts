@@ -21,6 +21,7 @@ data Env = MkEnv
   , whenName :: Ghc.Name
   , mutVarAssignOpName :: Ghc.Name
   , newMutVarName :: Ghc.Name
+  , evalMutVarStateName :: Ghc.Name
   , setMutVarName :: Ghc.Name
   , getMutVarName :: Ghc.Name
   , mutConName :: Ghc.Name
@@ -48,6 +49,7 @@ renamedResultAction gblEnv group = do
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "when")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc ":=")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "newMutVar")
+    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "evalMutVarState")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "setMutVar")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "getMutVar")
     <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc "Mut")
@@ -206,7 +208,23 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
       Body b -> bodyToStmts bL b
       Bind pat b -> bindToStmts bL pat b
 
-  -- TODO Mut bind
+  Ghc.BindStmt _x pat (Ghc.L bL body)
+    | Just varName <- mutVarDeclPat env (Ghc.unLoc pat)
+    , let newBody = transformExpr env stmtTransformers body
+    -> OpenDo (transformMutVar varName : stmtTransformers)
+         ( \stmts ->
+           let b = Ghc.noLocA
+                 . Ghc.OpApp Ghc.defaultFixity
+                     (Ghc.L bL newBody)
+                     (Ghc.noLocA defaultBindExpr)
+                 . Ghc.noLocA
+                 $ addApp (evalMutVarStateName env)
+                     (Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing)
+                       $ Ghc.noLocA stmts)
+            in mutVarBindStmts
+                 ++ [ Ghc.LastStmt Ghc.noExtField b Nothing Ghc.noSyntaxExpr ]
+         )
+
   Ghc.BindStmt _x pat (Ghc.L bL body) -> Result $
     case transformBindStmt pat body of
       Body b -> bodyToStmts bL b
@@ -222,17 +240,12 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
     | Ghc.isSingletonBag binds
       , [Ghc.L loc
           (Ghc.PatBind _
-            (Ghc.L _
-              (Ghc.ConPat _
-                (Ghc.L _ conName)
-                (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
-              )
-            )
+            (Ghc.L _ pat)
             Ghc.GRHSs
               { Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
           )
         ] <- Ghc.bagToList binds
-    , conName == mutConName env
+    , Just varName <- mutVarDeclPat env pat
     -> OpenDo (transformMutVar varName : stmtTransformers)
          ( \stmts ->
            let newVarDo = applyTransformers env stmtTransformers
@@ -245,7 +258,7 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
             in mutVarBindStmts ++ case newVarDo of
                   Body b ->
                     [Ghc.LastStmt Ghc.noExtField (Ghc.L loc b) Nothing Ghc.noSyntaxExpr]
-                  Bind pat b -> bindToStmts loc pat b
+                  Bind p b -> bindToStmts loc p b
          )
 
   _ -> Result [transform env stmt] -- handles let statements and anything else
@@ -292,6 +305,14 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
 
     mutVarBindStmts = mkMutVarBindStmt
                   <$> foldr (`bindVars` env) [] stmtTransformers
+
+mutVarDeclPat :: Env -> Ghc.Pat Ghc.GhcRn -> Maybe Ghc.Name
+mutVarDeclPat env = \case
+  Ghc.ConPat _
+   (Ghc.L _ conName)
+   (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
+     | conName == mutConName env -> Just varName
+  _ -> Nothing
 
 transformMatchGroup :: Env -> [StmtTransformer] -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
 transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
@@ -383,19 +404,11 @@ isTargetStmt
 isTargetStmt env = \case
   Ghc.LastStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
   Ghc.BodyStmt _ body _ _ -> isTargetExpr (Ghc.unLoc body)
+  Ghc.BindStmt _ pat _ -> isJust $ mutVarDeclPat env (Ghc.unLoc pat)
   Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
     | Ghc.isSingletonBag binds
-      , [Ghc.L _
-          (Ghc.PatBind _
-            (Ghc.L _
-              (Ghc.ConPat _
-                (Ghc.L _ conName)
-                _
-              )
-            ) _
-          )
-        ] <- Ghc.bagToList binds
-    -> conName == mutConName env
+      , [Ghc.L _ (Ghc.PatBind _ (Ghc.L _ pat) _)] <- Ghc.bagToList binds
+    -> isJust $ mutVarDeclPat env pat
   _ -> False
   where
     targetNames = whenName env : getLoopNames env

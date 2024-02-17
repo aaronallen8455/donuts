@@ -30,6 +30,7 @@ tests = testGroup "statements"
   , testCase "mut var 5" mutVar5
   , testCase "mut var 6" mutVar6
   , testCase "whileL 1" whileL1
+  , testCase "bind mut 1" bindMut1
   ]
 
 ifStatement1 :: Assertion
@@ -211,3 +212,12 @@ whileL1 =
           x := x + 1
         pure x
    in s @?= (5 :: Int)
+
+bindMut1 :: Assertion
+bindMut1 =
+  let s = do
+        Mut x <- Just 1
+        whileL (x < 5) $ do
+          x := x + 1
+        pure x
+   in s @?= Just (5 :: Int)

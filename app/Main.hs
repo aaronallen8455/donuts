@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fplugin Donuts.Plugin -O2  #-}
+{-# LANGUAGE BlockArguments #-}
 module Main where
 
 import           Data.Foldable
@@ -13,6 +14,9 @@ main = do
 blah :: IO Int
 blah = do
   i <- getLine
+  Mut y <- getLine
+  y := "user entered: " <> y
+  putStrLn y
   forL [1::Int,2,3,4,5] $ \ix -> do
     when (show ix == i) $ earlyReturn 9
     print ix
@@ -82,7 +86,7 @@ fib1 n = runIdentity $ do
   let Mut a = 0
   let Mut b = 1
   let Mut i = 0
-  whileL (i < n) $ do
+  whileL (i < n) do
     let !c = b
     b := a + b
     a := c
@@ -100,9 +104,9 @@ fib2 n = runIdentity $ do
   pure b
 
 fib2a :: Int -> Int
-fib2a n = runIdentity $ do
+fib2a n = runIdentity do
   let Mut x = (0, 1)
-  forL [1..n] $ \_ -> do
+  forL [1..n] \_ -> do
     let (!a, !b) = x
     x := (b, a + b)
   pure $ snd x
@@ -114,7 +118,7 @@ fib4 :: Int -> Int
 fib4 n = fib3 !! n
 
 fib5 :: Int -> Int
-fib5 n = (`evalState` (0,1,0)) $ do
+fib5 n = (`evalState` (0,1,0)) do
   let go = do
         (a,b,i) <- get
         if i == n
@@ -125,7 +129,7 @@ fib5 n = (`evalState` (0,1,0)) $ do
   go
 
 fib6 :: Int -> Int
-fib6 n = (`evalState` (0,1)) $ do
+fib6 n = (`evalState` (0,1)) do
   for_ [1..n] $ \_ -> do
     (!a,!b) <- get
     put (b, a+b)
