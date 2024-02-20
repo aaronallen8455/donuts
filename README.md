@@ -13,7 +13,7 @@ import the `Donuts` module.
 
 Use `Mut` to bind a mutable variable and `:=` to assign it to a new value. The
 mutability is scoped to the do block it is defined in as well as any nested
-loop bodies, if statements, and case statements within that block.
+loop or `when` bodies, if statements, and case statements within that block.
 
 ```haskell
 mutability :: Int
