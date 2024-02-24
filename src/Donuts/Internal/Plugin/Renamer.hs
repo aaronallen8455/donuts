@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 module Donuts.Internal.Plugin.Renamer
   ( renamedResultAction
   ) where
@@ -8,59 +7,22 @@ import qualified Data.Data as Data
 import           Data.Maybe
 
 import qualified Donuts.Internal.GhcFacade as Ghc
-
-data Env = MkEnv
-  { earlyReturnName :: Ghc.Name
-  , earlyReturnWrapDoName :: Ghc.Name
-  , forLName :: Ghc.Name
-  , whileLName :: Ghc.Name
-  , repeatLName :: Ghc.Name
-  , continueLName :: Ghc.Name
-  , breakLName :: Ghc.Name
-  , liftName :: Ghc.Name
-  , whenName :: Ghc.Name
-  , mutVarAssignOpName :: Ghc.Name
-  , newMutVarName :: Ghc.Name
-  , evalMutVarStateName :: Ghc.Name
-  , setMutVarName :: Ghc.Name
-  , getMutVarName :: Ghc.Name
-  , mutConName :: Ghc.Name
-  , notName :: Ghc.Name
-  }
+import           Donuts.Internal.Plugin.Env (Env(..), getLoopNames, initEnv)
+import           Donuts.Internal.Plugin.Util (addApp, isAppOf)
+import           Donuts.Internal.Plugin.StmtTransformer
 
 renamedResultAction
   :: Ghc.TcGblEnv
   -> Ghc.HsGroup Ghc.GhcRn
   -> Ghc.TcM (Ghc.TcGblEnv, Ghc.HsGroup Ghc.GhcRn)
 renamedResultAction gblEnv group = do
-  Ghc.Found _ apiMod <-
-    Ghc.runTcPluginM $
-      Ghc.findImportedModule (Ghc.mkModuleName "Donuts.Api") Ghc.NoPkgQual
-  Ghc.Found _ internalApiMod <-
-    Ghc.runTcPluginM $
-      Ghc.findImportedModule (Ghc.mkModuleName "Donuts.Internal.Api") Ghc.NoPkgQual
-
-  env <- Ghc.runTcPluginM $ MkEnv
-    <$> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "earlyReturn")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "earlyReturnWrapDo")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "forL")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "whileL")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "repeatL")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "continueL")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "breakL")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "lift")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "when")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkDataOcc ":=")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "newMutVar")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "evalMutVarState")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "setMutVar")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "getMutVar")
-    <*> Ghc.lookupOrig apiMod (Ghc.mkDataOcc "Mut")
-    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "not")
+  env <- initEnv
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)
 
+-- | A generic bottom up traversal that applies transformations to do blocks
+-- containing one of the target identifiers.
 transform :: Data a => Env -> a -> a
 transform env x =
   let recurse = Data.gmapT (transform env) x
@@ -79,96 +41,6 @@ transform env x =
                   (Ghc.noLocA $ earlyReturnWrapDoName env)))
               (Ghc.noLocA $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts)
       _ -> Nothing
-
-data StmtTransformer =
-  MkStmtTransformer
-    { transformBody
-        :: Env
-        -> Ghc.HsExpr Ghc.GhcRn
-        -> Ghc.HsExpr Ghc.GhcRn
-    , transformBindBody
-        :: Env
-        -> Ghc.HsExpr Ghc.GhcRn
-        -> Ghc.HsExpr Ghc.GhcRn
-    , bindVars
-        :: Env
-        -> [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
-        -> [(Ghc.Name, Ghc.HsExpr Ghc.GhcRn)]
-    }
-
-transformEarlyReturn :: StmtTransformer
-transformEarlyReturn = MkStmtTransformer
-  { transformBody = \env body ->
-      if isAppOf [ earlyReturnName env
-                 , breakLName env
-                 , continueLName env
-                 , mutVarAssignOpName env
-                 , newMutVarName env
-                 ] body
-      then body
-      else addApp (liftName env) body
-  , transformBindBody = addApp . liftName
-  , bindVars = const id
-  }
-
-transformLoop :: StmtTransformer
-transformLoop = MkStmtTransformer
-  { transformBody = \env body ->
-      if isAppOf [ breakLName env
-                 , continueLName env
-                 , newMutVarName env
-                 ] body
-         then body
-         else addApp (liftName env) body
-  , transformBindBody = addApp . liftName
-  , bindVars = fmap . fmap . addApp . liftName
-  }
-
-transformMutVar :: Ghc.Name -> StmtTransformer
-transformMutVar varName = MkStmtTransformer
-  { transformBody = \env -> \case
-      expr@(Ghc.OpApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ lName)))
-                             (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ oName)))
-                             rExpr)
-        | oName == mutVarAssignOpName env
-        , lName == varName
-        -> -- asignment of this variable
-          Ghc.HsApp Ghc.noComments
-                    (Ghc.nlHsVar $ setMutVarName env)
-                    rExpr
-        | oName == mutVarAssignOpName env
-        -> -- assignment for outer var.
-           expr
-      expr
-        | isAppOf [breakLName env, continueLName env, newMutVarName env] expr ->
-          expr
-        | otherwise ->
-          addApp (liftName env) expr
-  , transformBindBody = addApp . liftName
-  , bindVars = \env bnds ->
-      (varName, Ghc.nl_HsVar $ getMutVarName env)
-       : (fmap (addApp $ liftName env) <$> bnds)
-  }
-
-addApp :: Ghc.Name -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
-addApp name expr
-  = Ghc.HsApp
-      Ghc.noComments
-      (Ghc.noLocA (Ghc.HsVar Ghc.noExtField (Ghc.noLocA name)))
-      (Ghc.noLocA expr)
-
-defaultThenExpr :: Ghc.HsExpr Ghc.GhcRn
-defaultThenExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.thenMName)
-
-defaultBindExpr :: Ghc.HsExpr Ghc.GhcRn
-defaultBindExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.bindMName)
-
-defaultBindStmtX :: Ghc.XBindStmtRn
-defaultBindStmtX =
-  Ghc.XBindStmtRn
-    { Ghc.xbsrn_bindOp = Ghc.SyntaxExprRn defaultBindExpr
-    , Ghc.xbsrn_failOp = Nothing
-    }
 
 transformStmts
   :: Env
@@ -282,32 +154,6 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
     mutVarBindStmts = mkMutVarBindStmt
                   <$> foldr (`bindVars` env) [] stmtTransformers
 
-mutVarDeclPat :: Env -> Ghc.Pat Ghc.GhcRn -> Maybe Ghc.Name
-mutVarDeclPat env = \case
-  Ghc.ConPat _
-   (Ghc.L _ conName)
-   (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
-     | conName == mutConName env -> Just varName
-  _ -> Nothing
-
-transformMatchGroup :: Env -> [StmtTransformer] -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
-transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
-  where
-    transformMatch :: Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
-    transformMatch match =
-      match { Ghc.m_pats = transform env <$> Ghc.m_pats match
-            , Ghc.m_grhss = (Ghc.m_grhss match)
-              { Ghc.grhssGRHSs =
-                  map (fmap transformGRHS) (Ghc.grhssGRHSs (Ghc.m_grhss match))
-              }
-            }
-
-    transformGRHS :: Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
-    transformGRHS (Ghc.GRHS x guards body) =
-      Ghc.GRHS x
-        (transform env <$> guards)
-        (transformExpr env stmtTransformers <$> body)
-
 transformExpr :: Env -> [StmtTransformer] -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
 transformExpr env stmtTransformers = \case
   Ghc.OpApp _ (Ghc.L _ (Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) predExp))
@@ -363,21 +209,34 @@ transformExpr env stmtTransformers = \case
          in Ghc.HsDo m (Ghc.DoExpr Nothing) (mkNewStmts <$> stmts)
       expr -> transformExpr env stmtTransformers expr
 
-applyBodyTransformers :: Env -> [StmtTransformer] -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
-applyBodyTransformers env stmtTransformers st =
-  foldr (`transformBody` env) st stmtTransformers
+transformMatchGroup :: Env -> [StmtTransformer] -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.MatchGroup Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
+transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap transformMatch) <$> Ghc.mg_alts mg }
+  where
+    transformMatch :: Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.Match Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
+    transformMatch match =
+      match { Ghc.m_pats = transform env <$> Ghc.m_pats match
+            , Ghc.m_grhss = (Ghc.m_grhss match)
+              { Ghc.grhssGRHSs =
+                  map (fmap transformGRHS) (Ghc.grhssGRHSs (Ghc.m_grhss match))
+              }
+            }
 
-applyBindTransformers :: Env -> [StmtTransformer] -> Ghc.HsExpr Ghc.GhcRn -> Ghc.HsExpr Ghc.GhcRn
-applyBindTransformers env stmtTransformers st =
-  foldr (`transformBindBody` env) st stmtTransformers
+    transformGRHS :: Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn) -> Ghc.GRHS Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
+    transformGRHS (Ghc.GRHS x guards body) =
+      Ghc.GRHS x
+        (transform env <$> guards)
+        (transformExpr env stmtTransformers <$> body)
 
-getLoopNames :: Env -> [Ghc.Name]
-getLoopNames env =
-  [ forLName env
-  , repeatLName env
-  , whileLName env
-  ]
+-- | Extracts the variable name from a mutable variable declaration pattern
+mutVarDeclPat :: Env -> Ghc.Pat Ghc.GhcRn -> Maybe Ghc.Name
+mutVarDeclPat env = \case
+  Ghc.ConPat _
+   (Ghc.L _ conName)
+   (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
+     | conName == mutConName env -> Just varName
+  _ -> Nothing
 
+-- | Returns True if the given statement contains an identifier from the API.
 isTargetStmt
   :: Env
   -> Ghc.StmtLR Ghc.GhcRn Ghc.GhcRn (Ghc.LHsExpr Ghc.GhcRn)
@@ -426,18 +285,15 @@ isTargetStmt env = \case
     matchWithTarget = any (grhsWithTarget . Ghc.unLoc) . Ghc.grhssGRHSs . Ghc.m_grhss
     grhsWithTarget (Ghc.GRHS _ _guards body) = isTargetExpr (Ghc.unLoc body)
 
-isAppOf :: [Ghc.Name] -> Ghc.HsExpr Ghc.GhcRn -> Bool
-isAppOf names = \case
-  Ghc.HsVar _ (Ghc.L _ name) -> name `elem` names
-  Ghc.HsPar _ _ inner _ -> isAppOf names (Ghc.unLoc inner)
-  Ghc.OpApp _ (Ghc.L _ leftExpr)
-              (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName)))
-              _
-    | fName == Ghc.dollarName -> isAppOf names leftExpr
-    | otherwise -> fName `elem` names
-        -- TODO handle strict dollar as well
-  Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) _argExpr
-    -> fName `elem` names
-  Ghc.HsApp _ fExpr _
-    -> isAppOf names (Ghc.unLoc fExpr)
-  _ -> False
+defaultThenExpr :: Ghc.HsExpr Ghc.GhcRn
+defaultThenExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.thenMName)
+
+defaultBindExpr :: Ghc.HsExpr Ghc.GhcRn
+defaultBindExpr = Ghc.HsVar Ghc.noExtField (Ghc.noLocA Ghc.bindMName)
+
+defaultBindStmtX :: Ghc.XBindStmtRn
+defaultBindStmtX =
+  Ghc.XBindStmtRn
+    { Ghc.xbsrn_bindOp = Ghc.SyntaxExprRn defaultBindExpr
+    , Ghc.xbsrn_failOp = Nothing
+    }

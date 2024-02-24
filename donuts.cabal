@@ -23,6 +23,9 @@ library
                       Donuts.Internal.Api
     other-modules: Donuts.Internal.GhcFacade
                    Donuts.Internal.Plugin.Renamer
+                   Donuts.Internal.Plugin.Env
+                   Donuts.Internal.Plugin.StmtTransformer
+                   Donuts.Internal.Plugin.Util
     default-extensions:
       LambdaCase
     build-depends:    base ^>=4.19.0.0,
