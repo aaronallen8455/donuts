@@ -19,7 +19,8 @@ common warnings
 library
     import:           warnings
     exposed-modules:  Donuts, Donuts.Plugin,
-                      Donuts.Api
+                      Donuts.Api,
+                      Donuts.Internal.Api
     other-modules: Donuts.Internal.GhcFacade
                    Donuts.Internal.Plugin.Renamer
     default-extensions:
@@ -47,15 +48,15 @@ test-suite donuts-test
         tasty-hunit,
         mtl
 
--- executable play
---     import:           warnings
---     main-is:          Main.hs
---     -- other-modules:
---     -- other-extensions:
---     build-depends:
---         base ^>=4.19.0.0,
---         donuts,
---         mtl
--- 
---     hs-source-dirs:   app
---     default-language: GHC2021
+executable play
+    import:           warnings
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base ^>=4.19.0.0,
+        donuts,
+        mtl
+
+    hs-source-dirs:   app
+    default-language: GHC2021

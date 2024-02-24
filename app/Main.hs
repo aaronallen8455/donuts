@@ -135,3 +135,27 @@ fib6 n = (`evalState` (0,1)) do
     put (b, a+b)
   (a,b) <- get
   pure b
+
+extendedGcd :: Int -> Int -> (Int, Int, Int, Int, Int)
+extendedGcd a b = runIdentity $ do
+  let Mut rTup = (a, b)
+  let Mut sTup = (1, 0)
+  let Mut tTup = (0, 1)
+
+  whileL (snd rTup /= 0) $ do
+    let quotient = uncurry div rTup
+    rTup := (snd rTup, fst rTup - quotient * snd rTup)
+    sTup := (snd sTup, fst sTup - quotient * snd sTup)
+    tTup := (snd tTup, fst tTup - quotient * snd tTup)
+
+  pure (fst sTup, fst tTup, fst rTup, snd tTup, snd sTup)
+
+extendedGcd' :: Int -> Int -> (Int, Int, Int, Int, Int)
+extendedGcd' a b = go a b 1 0 0 1
+  where
+    go oldR 0 oldS _s oldT t = (oldS, oldT, oldR, t, s)
+    go !oldR !r !oldS !s !oldT !t =
+      let quotient = div oldR r
+       in go r (oldR - quotient * r)
+             s (oldS - quotient * s)
+             t (oldT - quotient * t)

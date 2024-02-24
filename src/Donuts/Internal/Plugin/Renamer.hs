@@ -33,27 +33,30 @@ renamedResultAction
   -> Ghc.HsGroup Ghc.GhcRn
   -> Ghc.TcM (Ghc.TcGblEnv, Ghc.HsGroup Ghc.GhcRn)
 renamedResultAction gblEnv group = do
-  Ghc.Found _ donutsMod <-
+  Ghc.Found _ apiMod <-
     Ghc.runTcPluginM $
       Ghc.findImportedModule (Ghc.mkModuleName "Donuts.Api") Ghc.NoPkgQual
+  Ghc.Found _ internalApiMod <-
+    Ghc.runTcPluginM $
+      Ghc.findImportedModule (Ghc.mkModuleName "Donuts.Internal.Api") Ghc.NoPkgQual
 
   env <- Ghc.runTcPluginM $ MkEnv
-    <$> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "earlyReturn")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "earlyReturnWrapDo")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "forL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "whileL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "repeatL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "continueL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "breakL")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "lift")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "when")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc ":=")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "newMutVar")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "evalMutVarState")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "setMutVar")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "getMutVar")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkDataOcc "Mut")
-    <*> Ghc.lookupOrig donutsMod (Ghc.mkVarOcc "not")
+    <$> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "earlyReturn")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "earlyReturnWrapDo")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "forL")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "whileL")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "repeatL")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "continueL")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "breakL")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "lift")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkVarOcc "when")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkDataOcc ":=")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "newMutVar")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "evalMutVarState")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "setMutVar")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "getMutVar")
+    <*> Ghc.lookupOrig apiMod (Ghc.mkDataOcc "Mut")
+    <*> Ghc.lookupOrig internalApiMod (Ghc.mkVarOcc "not")
   pure (gblEnv, transform env group)
 
 newtype T a = T (a -> Maybe a)

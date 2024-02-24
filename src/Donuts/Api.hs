@@ -7,24 +7,13 @@ module Donuts.Api
   , breakL
   , when
   , Mut(..)
-  -- * Internal
-  , not
-  , lift
-  , newMutVar
-  , evalMutVarState
-  , setMutVar
-  , getMutVar
-  , earlyReturnWrapDo
   , MutAssign(..)
-  , LoopControl(..)
   ) where
 
 import qualified Control.Monad as M
-import qualified Control.Monad.Trans.Class as MT
 import           Control.Monad.Trans.Except
-import           Control.Monad.Trans.State
-import           Prelude hiding (not)
-import qualified Prelude
+
+import           Donuts.Internal.Api (LoopControl(..))
 
 -- | Short circuits a monadic computation, returning the given value.
 --
@@ -40,13 +29,6 @@ import qualified Prelude
 -- @since 0.1.0.0
 earlyReturn :: Monad m => a -> ExceptT a m b
 earlyReturn = throwE
-
-earlyReturnWrapDo :: Monad m => ExceptT a m a -> m a
-earlyReturnWrapDo = fmap (either id id) . runExceptT
-
-data LoopControl
-  = Break
-  | Continue
 
 -- | Loop over the contents of a 'Foldable' container.
 --
@@ -141,27 +123,24 @@ breakL = throwE Break
 when :: Monad f => Bool -> f () -> f ()
 when = M.when
 
--- redefined so that the name is available to the plugin even if mtl is not a dependency.
-lift :: (MT.MonadTrans t, Monad m) => m a -> t m a
-lift = MT.lift
+-- | Used to declare a mutable variable. Works with both let statements and
+-- monadic binds.
+--
+-- @
+-- do
+-- let Mut x = True
+-- Mut y <- getLine
+-- @
+newtype Mut a = Mut a
 
 infixl 0 :=
 data MutAssign a b =
+  -- | Used to assign a new value to a mutable variable. The assigned value
+  -- is strictly evaluated.
+  --
+  -- @
+  -- do
+  -- let Mut x = True
+  -- x := False
+  -- @
   a := b
-
-newtype Mut a = Mut a
-
-newMutVar :: Monad m => v -> StateT v m a -> m a
-newMutVar = flip evalMutVarState
-
-evalMutVarState :: Monad m => StateT v m a -> v -> m a
-evalMutVarState = evalStateT
-
-setMutVar :: Monad m => v -> StateT v m ()
-setMutVar = put
-
-getMutVar :: Monad m => StateT v m v
-getMutVar = get
-
-not :: Bool -> Bool
-not = Prelude.not
