@@ -2,8 +2,14 @@
 {-# LANGUAGE BlockArguments #-}
 module Main where
 
+import           Data.Map (Map)
+import qualified Data.Map.Strict as M
+import           Data.Maybe
+
 import           Data.Foldable
+import           Control.Monad (forever)
 import           Control.Monad.State
+import           Control.Monad.Trans.Except
 import           Data.Functor.Identity
 import           Donuts.Api
 
@@ -159,3 +165,47 @@ extendedGcd' a b = go a b 1 0 0 1
        in go r (oldR - quotient * r)
              s (oldS - quotient * s)
              t (oldT - quotient * t)
+
+data Node =
+  Node
+    { edges :: ![Int]
+    , parent :: !(Maybe Int)
+    }
+
+type Graph = Map Int Node
+
+bfs :: Graph -> Int -> Int -> Graph
+bfs g start end = runIdentity $ do
+  let Mut res = g
+  let Mut queue = [start]
+  whileL (not $ null queue) $ do
+    let vIdx = head queue
+    queue := tail queue
+    when (vIdx == end) (earlyReturn res)
+    let es = maybe [] edges $ M.lookup vIdx res
+    forL es $ \i -> do
+      let node = res M.! i
+      when (isJust $ parent node) continueL
+      res := M.insert i (node {parent = Just vIdx}) res
+      queue := i : queue
+  pure res
+
+bfs' :: Graph -> Int -> Int -> Graph
+bfs' graph start end = go graph [start] []
+  where
+    go g [] [] = g
+    go g [] newQueue = go g newQueue []
+    go g (vIdx : queue) newQueue
+      | vIdx == end = g
+      | otherwise =
+        let es = maybe [] edges $ M.lookup vIdx g
+            (newG, newerQueue) = foldr (go2 vIdx) (g, newQueue) es
+         in go newG queue newerQueue
+
+    go2 r e (g, queue) =
+      let node = g M.! e
+       in if isJust (parent node)
+             then (g, queue)
+             else ( M.insert e node { parent = Just r } g
+                  , e : queue
+                  )

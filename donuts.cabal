@@ -59,7 +59,9 @@ executable play
     build-depends:
         base ^>=4.19.0.0,
         donuts,
-        mtl
+        mtl,
+        containers,
+        transformers
 
     hs-source-dirs:   app
     default-language: GHC2021

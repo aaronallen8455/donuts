@@ -29,6 +29,7 @@ tests = testGroup "statements"
   , testCase "mut var 4" mutVar4
   , testCase "mut var 5" mutVar5
   , testCase "mut var 6" mutVar6
+  , testCase "mut var 7" mutVar7
   , testCase "whileL 1" whileL1
   , testCase "bind mut 1" bindMut1
   ]
@@ -202,6 +203,16 @@ mutVar6 =
           y := x
           x := 3
         pure y
+   in s @?= (3 :: Int)
+
+mutVar7 :: Assertion
+mutVar7 =
+  let s = runIdentity $ do
+        let Mut x = 1
+        forL "abc" $ \_ -> do
+          let Mut y = 3
+          x := y
+        pure x
    in s @?= (3 :: Int)
 
 whileL1 :: Assertion

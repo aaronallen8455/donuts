@@ -48,6 +48,7 @@ transformLoop = MkStmtTransformer
       if isAppOf [ breakLName env
                  , continueLName env
                  , newMutVarName env
+                 , mutVarAssignOpName env
                  ] body
          then body
          else addApp (liftName env) body
