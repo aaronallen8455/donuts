@@ -16,10 +16,12 @@ tests = testGroup "statements"
   , testCase "if 2" ifStatement2
   , testCase "when 1" when1
   , testCase "when 2" when2
+  , testCase "when 3" when3
   , testCase "case 1" case1
   , testCase "case 2" case2
   , testCase "case 3" case3
   , testCase "forL" for1
+  , testCase "nested forL" for2
   , testCase "continue + break" continueBreak
   , testCase "nested continue + break" nestedContinueBreak
   , testCase "repeatL state" repeatLState
@@ -67,6 +69,13 @@ when2 =
         pure (3 :: Int)
    in s @?= 1
 
+when3 :: Assertion
+when3 =
+  let s = runIdentity $ do
+        when True $ earlyReturn $ 3 + 9
+        pure (3 :: Int)
+   in s @?= 12
+
 case1 :: Assertion
 case1 =
   let s = runIdentity $ do
@@ -104,6 +113,15 @@ for1 =
   let s = runIdentity $ do
         forL [(2::Int)..8] $ \i -> do
           when (i == 5) $ earlyReturn (1 :: Int)
+        pure 2
+   in s @?= 1
+
+for2 :: Assertion
+for2 =
+  let s = runIdentity $ do
+        forL [(2::Int)..8] $ \i ->
+          forL [1..3] $ \j ->
+            when (i + j == 5) $ earlyReturn (1 :: Int)
         pure 2
    in s @?= 1
 
@@ -210,7 +228,8 @@ mutVar7 =
   let s = runIdentity $ do
         let Mut x = 1
         forL "abc" $ \_ -> do
-          let Mut y = 3
+          let Mut y = 2
+          y := 3
           x := y
         pure x
    in s @?= (3 :: Int)

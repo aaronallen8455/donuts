@@ -133,9 +133,7 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
     transformBodyStmt = \case
       Ghc.HsPar x l (Ghc.L bL inner) r ->
         Ghc.HsPar x l (Ghc.L bL $ transformBodyStmt inner) r
-      body | isAppOf loopNames body ->
-              transformExpr env (transformLoop : stmtTransformers) body
-           | isAppOf [whenName env] body ->
+      body | isAppOf (whenName env : loopNames) body ->
               transformExpr env stmtTransformers body
       Ghc.HsIf ix predi t e ->
         Ghc.HsIf ix predi
@@ -162,7 +160,7 @@ transformExpr env stmtTransformers = \case
     | oName == Ghc.dollarName
     , fName == whileLName env ->
         addApp (repeatLName env)
-        . transformExpr env stmtTransformers
+        . transformExpr env (transformLoop : stmtTransformers)
         . transformWhileBody predExp
         $ Ghc.unLoc rExpr
 
@@ -170,7 +168,7 @@ transformExpr env stmtTransformers = \case
   Ghc.HsApp _ (Ghc.L _ (Ghc.HsApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) predExp)) argExp
     | fName == whileLName env ->
         addApp (repeatLName env)
-        . transformExpr env stmtTransformers
+        . transformExpr env (transformLoop : stmtTransformers)
         . transformWhileBody predExp
         $ Ghc.unLoc argExp
 
@@ -178,13 +176,20 @@ transformExpr env stmtTransformers = \case
     Ghc.HsLam lX (transformMatchGroup env stmtTransformers mg)
   Ghc.HsPar x a inner b ->
     Ghc.HsPar x a (transformExpr env stmtTransformers <$> inner) b
-  Ghc.OpApp x lExpr oExpr@(Ghc.L _ (Ghc.HsVar _ (Ghc.L _ fName))) rExpr
-    | fName == Ghc.dollarName
+  s@(Ghc.OpApp x lExpr oExpr rExpr)
+    | isAppOf [whenName env] s
     -> Ghc.OpApp x (transform env lExpr) oExpr
          $ transformExpr env stmtTransformers <$> rExpr
-  s@(Ghc.HsApp x fExpr aExpr) | isAppOf (whenName env : loopNames) s ->
-    Ghc.HsApp x (transform env fExpr)
-      $ transformExpr env stmtTransformers <$> aExpr
+    | isAppOf loopNames s
+    -> Ghc.OpApp x (transform env lExpr) oExpr
+         $ transformExpr env (transformLoop : stmtTransformers) <$> rExpr
+  s@(Ghc.HsApp x fExpr aExpr)
+    | isAppOf loopNames s ->
+      Ghc.HsApp x (transform env fExpr)
+        $ transformExpr env (transformLoop : stmtTransformers) <$> aExpr
+    | isAppOf [whenName env] s ->
+      Ghc.HsApp x (transform env fExpr)
+        $ transformExpr env stmtTransformers <$> aExpr
   Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
     let newStmts = transformStmts env stmtTransformers <$> stmts
      in Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts
