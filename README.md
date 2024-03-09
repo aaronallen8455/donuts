@@ -28,6 +28,15 @@ mutBind = do
   x := 1
   guard (odd x)
   pure x
+
+-- Strict and lazy annotations are respected, as well as the -XStrict extension.
+-- If strict, a mutable variable is evaluated to WHNF upon binding and re-assignment.
+-- Mutable variables are lazy by default.
+mutStrict :: Int
+mutStrict = runIdentity $ do
+  let Mut !x = computation
+  x := x * 2
+  pure x
 ```
 
 `earlyReturn` lets you short circuit a monadic computation, returning a given value.

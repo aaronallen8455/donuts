@@ -1,146 +1,15 @@
-{-# OPTIONS_GHC -fplugin Donuts.Plugin -O2  #-}
-{-# LANGUAGE BlockArguments #-}
+{-# OPTIONS_GHC -fplugin Donuts.Plugin #-}
 module Main where
 
-import           Data.Map (Map)
-import qualified Data.Map.Strict as M
-import           Data.Maybe
-
-import           Data.Foldable
-import           Control.Monad (forever)
+import           Control.Monad (forever, void)
 import           Control.Monad.State
 import           Control.Monad.Trans.Except
+import           Data.Maybe
+import           Data.Foldable
+import           Data.Map (Map)
+import qualified Data.Map.Strict as M
 import           Data.Functor.Identity
-import           Donuts.Api
-
-main :: IO ()
-main = do
-  print $ fib2a 100000
-
-blah :: IO Int
-blah = do
-  i <- getLine
-  Mut y <- getLine
-  y := "user entered: " <> y
-  putStrLn y
-  forL [1::Int,2,3,4,5] $ \ix -> do
-    when (show ix == i) $ earlyReturn 9
-    print ix
-  when (i == "no") $
-    earlyReturn 5
-  if i == "yes"
-     then earlyReturn 2
-     else putStrLn "t"
-  case i of
-    "what" -> earlyReturn 100
-    "huh" -> do
-      putStrLn "yup"
-      earlyReturn 101
-    "nope" -> pure ()
-    _ -> putStrLn "nah"
-  pure 3
-
-k :: Int
-k = runIdentity $ do
---   when True (earlyReturn 1)
-  forL [(2::Int)..8] $ \i -> do
-    when (i == 5) $ earlyReturn 1
-  pure 2
-
-
-s :: Int
-s = runIdentity $ do
-        when True (earlyReturn 1)
-        pure (3 :: Int)
-
-bc :: IO ()
-bc = do
-  putStrLn "here we go"
-  let Mut x = "yo"
-  x := "yoyo"
-  print x
-  forL [(1::Int)..12] $ \i -> do
-    print i
-    when (i == 7) continueL
-    print (i * 2)
-    x := x ++ "."
-    when (i == 9) breakL
-  putStrLn "the end"
-  print x
-
-ac :: IO ()
-ac = do
-  let Mut strings = []
-  repeatL $ do
-    inp <- getLine
-    when (inp == "stop") breakL
-    strings := inp : strings
-    print strings
-
-zz :: IO ()
-zz = do
-  i <- getLine
-  case i of
-    "..." -> do
-      let Mut x = True
-      x := False
-      print x
-    _ -> pure ()
-
-fib1 :: Int -> Int
-fib1 n = runIdentity $ do
-  let Mut a = 0
-  let Mut b = 1
-  let Mut i = 0
-  whileL (i < n) do
-    let !c = b
-    b := a + b
-    a := c
-    i := i + 1
-  pure b
-
-fib2 :: Int -> Int
-fib2 n = runIdentity $ do
-  let Mut a = 0
-  let Mut b = 1
-  forL [1..n] $ \_ -> do
-    let !c = b
-    b := a + b
-    a := c
-  pure b
-
-fib2a :: Int -> Int
-fib2a n = runIdentity do
-  let Mut x = (0, 1)
-  forL [1..n] \_ -> do
-    let (!a, !b) = x
-    x := (b, a + b)
-  pure $ snd x
-
-fib3 :: [Int]
-fib3 = 0 : 1 : zipWith (+) fib3 (drop 1 fib3)
-
-fib4 :: Int -> Int
-fib4 n = fib3 !! n
-
-fib5 :: Int -> Int
-fib5 n = (`evalState` (0,1,0)) do
-  let go = do
-        (a,b,i) <- get
-        if i == n
-           then pure b
-           else do
-             put (b, a+b, i+1)
-             go
-  go
-
-fib6 :: Int -> Int
-fib6 n = (`evalState` (0,1)) do
-  for_ [1..n] $ \_ -> do
-    (!a,!b) <- get
-    put (b, a+b)
-  (a,b) <- get
-  pure b
+import           Donuts
 
 extendedGcd :: Int -> Int -> (Int, Int, Int, Int, Int)
 extendedGcd a b = runIdentity $ do
@@ -159,38 +28,50 @@ extendedGcd a b = runIdentity $ do
 extendedGcd' :: Int -> Int -> (Int, Int, Int, Int, Int)
 extendedGcd' a b = go a b 1 0 0 1
   where
-    go oldR 0 oldS _s oldT t = (oldS, oldT, oldR, t, s)
+    go oldR 0 oldS s oldT t = (oldS, oldT, oldR, t, s)
     go !oldR !r !oldS !s !oldT !t =
       let quotient = div oldR r
        in go r (oldR - quotient * r)
              s (oldS - quotient * s)
              t (oldT - quotient * t)
 
-data Node =
-  Node
-    { edges :: ![Int]
-    , parent :: !(Maybe Int)
-    }
+extendedGcd'' :: Int -> Int -> (Int, Int, Int, Int, Int)
+extendedGcd'' a b = (`evalState` (a, b)) . (`evalStateT` (1, 0)) . (`evalStateT` (0, 1)) $ do
+  void . runExceptT . forever $ do
+    rTup <- lift . lift $ lift get
+    when (snd rTup == 0) (throwE ())
+    let quotient = uncurry div rTup
+    lift . lift . lift $ put (snd rTup, fst rTup - quotient * snd rTup)
+    sTup <- lift $ lift get
+    lift . lift $ put (snd sTup, fst sTup - quotient * snd sTup)
+    tTup <- lift get
+    lift $ put (snd tTup, fst tTup - quotient * snd tTup)
 
-type Graph = Map Int Node
+  rTup <- lift $ lift get
+  sTup <- lift get
+  tTup <- get
 
-bfs :: Graph -> Int -> Int -> Graph
+  pure (fst sTup, fst tTup, fst rTup, snd tTup, snd sTup)
+
+
+bfs :: Graph -> String -> String -> Graph
 bfs g start end = runIdentity $ do
   let Mut res = g
   let Mut queue = [start]
   whileL (not $ null queue) $ do
-    let vIdx = head queue
-    queue := tail queue
-    when (vIdx == end) (earlyReturn res)
-    let es = maybe [] edges $ M.lookup vIdx res
-    forL es $ \i -> do
-      let node = res M.! i
-      when (isJust $ parent node) continueL
-      res := M.insert i (node {parent = Just vIdx}) res
-      queue := i : queue
+    let Mut newQueue = []
+    forL queue $ \vIdx -> do
+      when (vIdx == end) $ earlyReturn res
+      let es = maybe [] edges $ M.lookup vIdx res
+      forL es $ \i -> do
+        let node = res M.! i
+        when (isJust (parent node) || i == start) continueL
+        res := M.insert i (node {parent = Just vIdx}) res
+        newQueue := i : newQueue
+    queue := newQueue
   pure res
 
-bfs' :: Graph -> Int -> Int -> Graph
+bfs' :: Graph -> String -> String -> Graph
 bfs' graph start end = go graph [start] []
   where
     go g [] [] = g
@@ -199,13 +80,95 @@ bfs' graph start end = go graph [start] []
       | vIdx == end = g
       | otherwise =
         let es = maybe [] edges $ M.lookup vIdx g
-            (newG, newerQueue) = foldr (go2 vIdx) (g, newQueue) es
+            (newG, newerQueue) = foldl' (go2 vIdx) (g, newQueue) es
          in go newG queue newerQueue
 
-    go2 r e (g, queue) =
+    go2 r (!g, queue) e =
       let node = g M.! e
-       in if isJust (parent node)
+       in if isJust (parent node) || e == start
              then (g, queue)
              else ( M.insert e node { parent = Just r } g
                   , e : queue
                   )
+
+-- floydWarshall :: Graph -> Map [String] Int
+-- floydWarshall graph = runIdentity $ do
+--   let labels = V.fromList $ M.keys graph
+--       sz = V.length labels
+--   let Mut result = M.empty
+-- 
+--   forL (M.toList graph) $ \(l, es) ->
+--     forL (edges es) $ \e -> do
+--       result := M.insert (sort [l, e]) 1 result
+-- 
+--   forL labels $ \j ->
+--     forL [0 .. sz - 1] $ \ix -> do
+--       let i = labels V.! ix
+--       forL [ix + 1 .. sz - 1] $ \kx -> do
+--         let k = labels V.! kx
+--         when (i == j || k == j) continueL
+--         let direct = M.findWithDefault maxBound (sort [i, k]) result
+--             withJ = fromMaybe maxBound
+--                   $ (+) <$> M.lookup (sort [i, j]) result
+--                         <*> M.lookup (sort [j, k]) result
+--         when (withJ < direct) $ do
+--           result := M.insert (sort [i, k]) withJ result
+-- 
+--   pure result
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+main :: IO ()
+main = do
+--   g <- parseGraph <$> getContents
+--   let res = bfs g "qcc" "xkx"
+--   print $ extractPath res "xkx"
+  pure ()
+
+parseGraph :: String -> Graph
+parseGraph =
+  fmap mkNode . M.fromListWith (<>) . concatMap parseLine . lines
+
+parseLine :: String -> [(String, [String])]
+parseLine ln = case splitAt 3 ln of
+  (l, _:es) -> (l, words es) : do
+    e <- words es
+    [(e, [l])]
+  _ -> undefined
+
+mkNode :: [String] -> Node
+mkNode es = Node es Nothing
+
+extractPath :: Graph -> String -> [String]
+extractPath g l =
+  case M.lookup l g of
+    Nothing -> undefined
+    Just n ->
+      l : foldMap (extractPath g) (parent n)
+
+data Node =
+  Node
+    { edges :: ![String]
+    , parent :: !(Maybe String)
+    } deriving Show
+
+type Graph = Map String Node
+

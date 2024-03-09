@@ -35,6 +35,7 @@ transformEarlyReturn = MkStmtTransformer
                  , continueLName env
                  , mutVarAssignOpName env
                  , newMutVarName env
+                 , newMutVarStrictName env
                  ] body
       then body
       else addApp (liftName env) body
@@ -48,6 +49,7 @@ transformLoop = MkStmtTransformer
       if isAppOf [ breakLName env
                  , continueLName env
                  , newMutVarName env
+                 , newMutVarStrictName env
                  , mutVarAssignOpName env
                  ] body
          then body
@@ -56,8 +58,8 @@ transformLoop = MkStmtTransformer
   , bindVars = fmap . fmap . addApp . liftName
   }
 
-transformMutVar :: Ghc.Name -> StmtTransformer
-transformMutVar varName = MkStmtTransformer
+transformMutVar :: Bool -> Ghc.Name -> StmtTransformer
+transformMutVar isStrict varName = MkStmtTransformer
   { transformBody = \env -> \case
       expr@(Ghc.OpApp _ (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ lName)))
                              (Ghc.L _ (Ghc.HsVar _ (Ghc.L _ oName)))
@@ -66,13 +68,21 @@ transformMutVar varName = MkStmtTransformer
         , lName == varName
         -> -- asignment of this variable
           Ghc.HsApp Ghc.noComments
-                    (Ghc.nlHsVar $ setMutVarName env)
+                    (Ghc.nlHsVar $
+                      if isStrict
+                         then setMutVarStrictName env
+                         else setMutVarName env
+                    )
                     rExpr
         | oName == mutVarAssignOpName env
         -> -- assignment for outer var.
            expr
       expr
-        | isAppOf [breakLName env, continueLName env, newMutVarName env] expr ->
+        | isAppOf [ breakLName env
+                  , continueLName env
+                  , newMutVarName env
+                  , newMutVarStrictName env
+                  ] expr ->
           expr
         | otherwise ->
           addApp (liftName env) expr

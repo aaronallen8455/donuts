@@ -2,8 +2,11 @@ module Donuts.Internal.Api
   ( not
   , lift
   , newMutVar
+  , newMutVarStrict
   , evalMutVarState
+  , evalMutVarStateStrict
   , setMutVar
+  , setMutVarStrict
   , getMutVar
   , earlyReturnWrapDo
   , LoopControl(..)
@@ -28,11 +31,20 @@ lift = MT.lift
 newMutVar :: Monad m => v -> StateT v m a -> m a
 newMutVar = flip evalMutVarState
 
+newMutVarStrict :: Monad m => v -> StateT v m a -> m a
+newMutVarStrict !v st = evalMutVarState st v
+
 evalMutVarState :: Monad m => StateT v m a -> v -> m a
-evalMutVarState st !v = evalStateT st v
+evalMutVarState = evalStateT
+
+evalMutVarStateStrict :: Monad m => StateT v m a -> v -> m a
+evalMutVarStateStrict st !v = evalStateT st v
 
 setMutVar :: Monad m => v -> StateT v m ()
-setMutVar !v = put v
+setMutVar = put
+
+setMutVarStrict :: Monad m => v -> StateT v m ()
+setMutVarStrict !v = put v
 
 getMutVar :: Monad m => StateT v m v
 getMutVar = get

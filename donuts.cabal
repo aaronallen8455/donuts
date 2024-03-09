@@ -30,6 +30,7 @@ library
       LambdaCase
     build-depends:    base ^>=4.19.0.0,
                       ghc ^>= 9.8.0,
+                      ghc-boot,
                       transformers,
                       mtl,
     hs-source-dirs:   src
@@ -61,7 +62,8 @@ executable play
         donuts,
         mtl,
         containers,
-        transformers
+        transformers,
+        vector
 
     hs-source-dirs:   app
     default-language: GHC2021

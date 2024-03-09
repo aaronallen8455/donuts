@@ -1,8 +1,11 @@
 module Main (main) where
 
+import           Control.Monad (void)
 import           Control.Monad.State
 import           Control.Monad.Writer
 import           Data.Functor.Identity
+import           Data.IORef
+import           System.IO.Unsafe
 import           Donuts.Api
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -34,6 +37,7 @@ tests = testGroup "statements"
   , testCase "mut var 7" mutVar7
   , testCase "whileL 1" whileL1
   , testCase "bind mut 1" bindMut1
+  , testCase "laziness" laziness1
   ]
 
 ifStatement1 :: Assertion
@@ -247,7 +251,39 @@ bindMut1 :: Assertion
 bindMut1 =
   let s = do
         Mut x <- Just 1
+        Mut y <- Just 9
         whileL (x < 5) $ do
+          Mut z <- Just 10
           x := x + 1
         pure x
    in s @?= Just (5 :: Int)
+
+laziness1 :: Assertion
+laziness1 = do
+  ref1 <- newIORef False
+  ref2 <- newIORef False
+  ref3 <- newIORef False
+  ref4 <- newIORef False
+  ref5 <- newIORef False
+  ref6 <- newIORef False
+
+  let !() = runIdentity $ do
+            let Mut x = unsafePerformIO (void $ writeIORef ref1 True)
+            let Mut !y = unsafePerformIO (void $ writeIORef ref2 True)
+            let Mut ~z = unsafePerformIO (void $ writeIORef ref3 True)
+            x := unsafePerformIO (void $ writeIORef ref4 True)
+            y := unsafePerformIO (void $ writeIORef ref5 True)
+            z := unsafePerformIO (void $ writeIORef ref6 True)
+            pure ()
+  r1 <- readIORef ref1
+  r1 @?= False
+  r2 <- readIORef ref2
+  r2 @?= True
+  r3 <- readIORef ref3
+  r3 @?= False
+  r4 <- readIORef ref4
+  r4 @?= False
+  r5 <- readIORef ref5
+  r5 @?= True
+  r6 <- readIORef ref6
+  r6 @?= False

@@ -131,6 +131,14 @@ when = M.when
 -- let Mut x = True
 -- Mut y <- getLine
 -- @
+--
+-- Strict and lazy annotations are respected, as well as the -XStrict extension.
+-- If strict, a mutable variable is evaluated to WHNF upon binding and re-assignment.
+-- Mutable variables are lazy by default.
+--
+-- @
+-- let Mut !x = computation
+-- @
 newtype Mut a = Mut a
 
 infixl 0 :=

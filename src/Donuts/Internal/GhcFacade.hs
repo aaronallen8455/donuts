@@ -11,3 +11,4 @@ import           GHC.Tc.Plugin as Ghc
 import           GHC.Utils.Outputable as Ghc
 import           GHC.Types.Name as Ghc
 import           GHC.Data.Bag as Ghc
+import           GHC.Driver.DynFlags as Ghc

@@ -7,7 +7,7 @@ import qualified Data.Data as Data
 import           Data.Maybe
 
 import qualified Donuts.Internal.GhcFacade as Ghc
-import           Donuts.Internal.Plugin.Env (Env(..), getLoopNames, initEnv)
+import           Donuts.Internal.Plugin.Env (Env(..), getEvalMutVarStateName, getLoopNames, getNewMutVarName, initEnv)
 import           Donuts.Internal.Plugin.Util (addApp, isAppOf)
 import           Donuts.Internal.Plugin.StmtTransformer
 
@@ -77,16 +77,16 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
                      Ghc.noSyntaxExpr]
 
   Ghc.BindStmt _x pat (Ghc.L bL body)
-    | Just varName <- mutVarDeclPat env (Ghc.unLoc pat)
+    | Just (varName, isStrict) <- mutVarDeclPat env (Ghc.unLoc pat)
     , let newBody = transformExpr env stmtTransformers body
-    -> OpenDo (transformMutVar varName : stmtTransformers)
+    -> OpenDo (transformMutVar isStrict varName : stmtTransformers)
          ( \stmts ->
            let b = Ghc.noLocA
                  . Ghc.OpApp Ghc.defaultFixity
                      (Ghc.L bL newBody)
                      (Ghc.noLocA defaultBindExpr)
                  . Ghc.noLocA
-                 $ addApp (evalMutVarStateName env)
+                 $ addApp (getEvalMutVarStateName isStrict env)
                      (Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing)
                        $ Ghc.noLocA stmts)
             in mutVarBindStmts
@@ -111,12 +111,12 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
               { Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
           )
         ] <- Ghc.bagToList binds
-    , Just varName <- mutVarDeclPat env pat
-    -> OpenDo (transformMutVar varName : stmtTransformers)
+    , Just (varName, isStrict) <- mutVarDeclPat env pat
+    -> OpenDo (transformMutVar isStrict varName : stmtTransformers)
          ( \stmts ->
            let newVarDo = applyBodyTransformers env stmtTransformers
                  $ Ghc.HsApp Ghc.noComments
-                     (Ghc.L valL $ addApp (newMutVarName env) $ transform env val)
+                     (Ghc.L valL $ addApp (getNewMutVarName isStrict env) $ transform env val)
                      (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing)
                                  $ Ghc.noLocA stmts)
             in mutVarBindStmts
@@ -233,12 +233,20 @@ transformMatchGroup env stmtTransformers mg = mg { Ghc.mg_alts = map (fmap trans
         (transformExpr env stmtTransformers <$> body)
 
 -- | Extracts the variable name from a mutable variable declaration pattern
-mutVarDeclPat :: Env -> Ghc.Pat Ghc.GhcRn -> Maybe Ghc.Name
+mutVarDeclPat :: Env -> Ghc.Pat Ghc.GhcRn -> Maybe (Ghc.Name, Bool)
 mutVarDeclPat env = \case
   Ghc.ConPat _
    (Ghc.L _ conName)
-   (Ghc.PrefixCon [] [Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName))])
-     | conName == mutConName env -> Just varName
+   (Ghc.PrefixCon [] [Ghc.L _ pat])
+     | conName == mutConName env
+     -> case pat of
+          Ghc.VarPat _ (Ghc.L _ varName)
+            -> Just (varName, strictOn env)
+          Ghc.LazyPat _ (Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName)))
+            -> Just (varName, False)
+          Ghc.BangPat _ (Ghc.L _ (Ghc.VarPat _ (Ghc.L _ varName)))
+            -> Just (varName, True)
+          _ -> Nothing
   _ -> Nothing
 
 -- | Returns True if the given statement contains an identifier from the API.
