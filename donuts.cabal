@@ -1,8 +1,8 @@
 cabal-version:      3.0
 name:               donuts
 version:            0.1.0.0
--- synopsis:
--- description:
+synopsis: Local imperativity GHC plugin
+description: A GHC plugin that implements local imperativity within do-blocks ala Lean 4.
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Aaron Allen
@@ -10,8 +10,16 @@ maintainer:         aaronallen8455@gmail.com
 -- copyright:
 category:           Development
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
--- extra-source-files:
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+tested-with:
+  GHC == 9.8.1
+  GHC == 9.6.2
+  GHC == 9.4.8
+source-repository head
+    type: git
+    location: https://github.com/aaronallen8455/donuts
 
 common warnings
     ghc-options: -Wall
@@ -28,8 +36,8 @@ library
                    Donuts.Internal.Plugin.Util
     default-extensions:
       LambdaCase
-    build-depends:    base ^>=4.19.0.0,
-                      ghc ^>= 9.8.0,
+    build-depends:    base ^>=4.19.0.0 || ^>= 4.18.0.0 || ^>= 4.17.0.0,
+                      ghc ^>= 9.8.0 || ^>= 9.6.0 || ^>= 9.4.0,
                       ghc-boot,
                       transformers,
                       mtl,
@@ -48,24 +56,24 @@ test-suite donuts-test
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
-        base ^>=4.19.0.0,
+        base,
         donuts,
         tasty,
         tasty-hunit,
         mtl
 
-executable play
-    import:           warnings
-    main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
-    build-depends:
-        base ^>=4.19.0.0,
-        donuts,
-        mtl,
-        containers,
-        transformers,
-        vector
-
-    hs-source-dirs:   app
-    default-language: GHC2021
+--executable play
+--    import:           warnings
+--    main-is:          Main.hs
+--    -- other-modules:
+--    -- other-extensions:
+--    build-depends:
+--        base,
+--        donuts,
+--        mtl,
+--        containers,
+--        transformers,
+--        vector
+--
+--    hs-source-dirs:   app
+--    default-language: GHC2021

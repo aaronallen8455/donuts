@@ -105,10 +105,12 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
   Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
     | Ghc.isSingletonBag binds
       , [Ghc.L loc
-          (Ghc.PatBind _
-            (Ghc.L _ pat)
-            Ghc.GRHSs
-              { Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
+          (Ghc.PatBind
+            { Ghc.pat_lhs = (Ghc.L _ pat)
+            , Ghc.pat_rhs =
+              Ghc.GRHSs
+                { Ghc.grhssGRHSs = [Ghc.L _ (Ghc.GRHS _ [] (Ghc.L valL val))] }
+            }
           )
         ] <- Ghc.bagToList binds
     , Just (varName, isStrict) <- mutVarDeclPat env pat
@@ -260,7 +262,7 @@ isTargetStmt env = \case
   Ghc.BindStmt _ pat _ -> isJust $ mutVarDeclPat env (Ghc.unLoc pat)
   Ghc.LetStmt _ (Ghc.HsValBinds _ (Ghc.XValBindsLR (Ghc.NValBinds [(_, binds)] _)))
     | Ghc.isSingletonBag binds
-      , [Ghc.L _ (Ghc.PatBind _ (Ghc.L _ pat) _)] <- Ghc.bagToList binds
+      , [Ghc.L _ (Ghc.PatBind { Ghc.pat_lhs = Ghc.L _ pat })] <- Ghc.bagToList binds
     -> isJust $ mutVarDeclPat env pat
   _ -> False
   where

@@ -1,8 +1,8 @@
 module Main (main) where
 
 import           Control.Monad (void)
-import           Control.Monad.State
-import           Control.Monad.Writer
+import           Control.Monad.State (runState, get, modify')
+import           Control.Monad.Writer (runWriter, tell)
 import           Data.Functor.Identity
 import           Data.IORef
 import           System.IO.Unsafe
