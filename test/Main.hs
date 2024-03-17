@@ -189,7 +189,7 @@ mutVar2 =
 mutVar3 :: Assertion
 mutVar3 =
   let s = runIdentity $ do
-        let Mut x = 1
+        let Mut x = 1 :: Int
         repeatL $ do
           when (x == 5) $ earlyReturn 99
           x := x + 1
@@ -201,7 +201,7 @@ mutVar4 =
   let s = runIdentity $ do
         let Mut x = 1
         repeatL $ do
-          forL [1..x] $ \i -> do
+          forL [(1::Int)..x] $ \i -> do
             x := x + 1
           when (x == 8) $ earlyReturn 99
         pure 100
@@ -251,9 +251,9 @@ bindMut1 :: Assertion
 bindMut1 =
   let s = do
         Mut x <- Just 1
-        Mut y <- Just 9
+        Mut y <- Just (9 :: Int)
         whileL (x < 5) $ do
-          Mut z <- Just 10
+          Mut z <- Just (10 :: Int)
           x := x + 1
         pure x
    in s @?= Just (5 :: Int)

@@ -6,7 +6,7 @@ inspired by the do block features of Lean 4 and
 [this related paper](https://dl.acm.org/doi/pdf/10.1145/3547640).
 
 To use it, add this package as a dependency and add
-`{-# OPTIONS_GHC -fplugin Donuts.Plugin #-}` to the top of a Haskell file and
+`{-# OPTIONS_GHC -fplugin Donuts #-}` to the top of a Haskell file and
 import the `Donuts` module.
 
 ### Examples

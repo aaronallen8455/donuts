@@ -39,7 +39,9 @@ library
 test-suite donuts-test
     import:           warnings
     default-language: GHC2021
-    ghc-options: -fplugin Donuts.Plugin
+    ghc-options: -fplugin Donuts
+                 -Wno-unused-matches
+                 -Wno-unused-do-bind
     -- other-modules:
     -- other-extensions:
     type:             exitcode-stdio-1.0
