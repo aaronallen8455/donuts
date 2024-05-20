@@ -67,7 +67,7 @@ transformMutVar isStrict varName = MkStmtTransformer
         | oName == mutVarAssignOpName env
         , lName == varName
         -> -- asignment of this variable
-          Ghc.HsApp Ghc.noComments
+          Ghc.HsApp Ghc.hsAppX
                     (Ghc.nlHsVar $
                       if isStrict
                          then setMutVarStrictName env

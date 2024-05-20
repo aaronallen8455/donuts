@@ -36,7 +36,7 @@ transform env x =
            let newStmts = Ghc.L loc $
                  transformStmts env [transformEarlyReturn] stmts
             in Just $
-              Ghc.HsApp Ghc.noComments
+              Ghc.HsApp Ghc.hsAppX
                 (Ghc.noLocA (Ghc.HsVar Ghc.noExtField
                   (Ghc.noLocA $ earlyReturnWrapDoName env)))
               (Ghc.noLocA $ Ghc.HsDo m (Ghc.DoExpr Nothing) newStmts)
@@ -117,7 +117,7 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
     -> OpenDo (transformMutVar isStrict varName : stmtTransformers)
          ( \stmts ->
            let newVarDo = applyBodyTransformers env stmtTransformers
-                 $ Ghc.HsApp Ghc.noComments
+                 $ Ghc.HsApp Ghc.hsAppX
                      (Ghc.L valL $ addApp (getNewMutVarName isStrict env) $ transform env val)
                      (Ghc.noLocA $ Ghc.HsDo Ghc.noExtField (Ghc.DoExpr Nothing)
                                  $ Ghc.noLocA stmts)
@@ -133,8 +133,8 @@ transformStmt env stmtTransformers stmt = addVarBinds $ case stmt of
       x -> x
 
     transformBodyStmt = \case
-      Ghc.HsPar x l (Ghc.L bL inner) r ->
-        Ghc.HsPar x l (Ghc.L bL $ transformBodyStmt inner) r
+      Ghc.HsPar' x l (Ghc.L bL inner) r ->
+        Ghc.HsPar' x l (Ghc.L bL $ transformBodyStmt inner) r
       body | isAppOf (whenName env : loopNames) body ->
               transformExpr env stmtTransformers body
       Ghc.HsIf ix predi t e ->
@@ -174,10 +174,10 @@ transformExpr env stmtTransformers = \case
         . transformWhileBody predExp
         $ Ghc.unLoc argExp
 
-  Ghc.HsLam lX mg ->
-    Ghc.HsLam lX (transformMatchGroup env stmtTransformers mg)
-  Ghc.HsPar x a inner b ->
-    Ghc.HsPar x a (transformExpr env stmtTransformers <$> inner) b
+  Ghc.HsLam' lX v mg ->
+    Ghc.HsLam' lX v (transformMatchGroup env stmtTransformers mg)
+  Ghc.HsPar' x l inner r ->
+    Ghc.HsPar' x l (transformExpr env stmtTransformers <$> inner) r
   s@(Ghc.OpApp x lExpr oExpr rExpr)
     | isAppOf [whenName env] s
     -> Ghc.OpApp x (transform env lExpr) oExpr
@@ -204,7 +204,7 @@ transformExpr env stmtTransformers = \case
     transformWhileBody predExp = \case
       Ghc.HsDo m (Ghc.DoExpr Nothing) stmts ->
         let whenBreak =
-              Ghc.HsApp Ghc.noComments
+              Ghc.HsApp Ghc.hsAppX
                 (addApp (whenName env) . addApp (notName env) <$> predExp)
                 (Ghc.noLocA (Ghc.HsVar Ghc.noExtField (Ghc.noLocA $ breakLName env)))
             mkNewStmts ss =
@@ -281,7 +281,7 @@ isTargetStmt env = \case
         || exprContainsTarget e || isTargetExpr e
       _ -> False
     exprContainsTarget = \case
-      Ghc.HsPar _ _ inner _ -> exprContainsTarget $ Ghc.unLoc inner
+      Ghc.HsPar' _ _ inner _ -> exprContainsTarget $ Ghc.unLoc inner
       Ghc.HsApp _ expr _ | isAppOf [earlyReturnName env] $ Ghc.unLoc expr -> True
       Ghc.HsApp _ fExpr arg -> isAppOf targetNames (Ghc.unLoc fExpr)
                             && exprContainsTarget (Ghc.unLoc arg)
